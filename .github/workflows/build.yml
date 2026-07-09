@@ -1,0 +1,43 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    name: Build and Test
+    runs-on: macos-15
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+
+      - name: Swift Build (debug)
+        run: swift build --configuration debug
+
+      - name: Swift Build (release)
+        run: swift build --configuration release
+
+      - name: Archive App Bundle
+        run: |
+          mkdir -p build/release/AIUsageBar.app/Contents/{MacOS,Resources}
+          cp .build/release/AIUsageBar build/release/AIUsageBar.app/Contents/MacOS/
+          cp Resources/Info.plist build/release/AIUsageBar.app/Contents/Info.plist
+          if [ -f Resources/AppIcon.icns ]; then
+            cp Resources/AppIcon.icns build/release/AIUsageBar.app/Contents/Resources/
+          fi
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AIUsageBar.app
+          path: build/release/AIUsageBar.app
+          retention-days: 7

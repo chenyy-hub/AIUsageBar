@@ -1,14 +1,12 @@
 import SwiftUI
 
-// MARK: - Agent Usage View (v5.2 Optimized)
+// MARK: - Agent Usage View (v1.0)
 
 /// 展示所有 AI Agent 的使用资源。
 ///
-/// 双模式展示：
-///   - API Cost:   成本 + Token 总量 + Provider 标识
-///   - Subscription: Quota 占比 + Session 数 + Reset time
-///
-/// 按成本/用量自动排序（最高优先）。
+/// 严格区分 API Cost 和 Subscription Quota：
+///   - API:         成本 + Token 总量
+///   - Subscription: Token 用量 + Session 数（无金额）
 ///
 struct AgentUsageView: View {
     let usages: [AgentResource]
@@ -18,15 +16,11 @@ struct AgentUsageView: View {
             EmptyView()
         } else {
             VStack(alignment: .leading, spacing: 8) {
-                SectionHeaderView(title: "AI Agent 使用", icon: "cpu.fill")
+                SectionHeaderView(title: "AI Agent", icon: "cpu.fill")
 
-                // 按 cost 排序（API 优先），quota 在后
                 ForEach(sortedUsages) { agent in
                     AgentCard(agent: agent)
                 }
-
-                // Agent 排行（迷你条状图）
-                agentRankingBar
             }
             .padding(10)
             .background(
@@ -37,7 +31,6 @@ struct AgentUsageView: View {
         }
     }
 
-    /// 排序：混合情况 API 在前，按 cost/用量降序
     private var sortedUsages: [AgentResource] {
         usages.sorted { a, b in
             let aVal = a.cost ?? a.quotaUsed ?? 0
@@ -45,51 +38,16 @@ struct AgentUsageView: View {
             return aVal > bVal
         }
     }
-
-    /// Agent 排行迷你条
-    private var agentRankingBar: some View {
-        let total = sortedUsages.reduce(0.0) { $0 + max(($1.cost ?? 0), ($1.quotaUsed ?? 0)) }
-        guard total > 0 else { return AnyView(EmptyView()) }
-
-        return AnyView(
-            VStack(spacing: 3) {
-                ForEach(sortedUsages.prefix(3)) { agent in
-                    let val = max(agent.cost ?? 0, agent.quotaUsed ?? 0)
-                    let fraction = val / total
-                    HStack(spacing: 6) {
-                        Image(systemName: agent.iconName)
-                            .font(.system(size: 8))
-                            .foregroundColor(.accentColor)
-                            .frame(width: 14)
-                        Text(agent.displayName)
-                            .font(.system(size: 9))
-                            .frame(width: 70, alignment: .leading)
-                            .lineLimit(1)
-                        ProgressBarView(value: fraction, color: agentColor(agent), height: 4)
-                        Text(agent.typeLabel)
-                            .font(.system(size: 8))
-                            .foregroundColor(.secondary)
-                            .frame(width: 60)
-                    }
-                }
-            }
-            .padding(.top, 4)
-        )
-    }
-
-    private func agentColor(_ agent: AgentResource) -> Color {
-        agent.usageType == .apiCost ? .blue : .orange
-    }
 }
 
-// MARK: - Agent Card (v5.2)
+// MARK: - Agent Card
 
 struct AgentCard: View {
     let agent: AgentResource
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            // Header: icon + name + type badge + provider
+            // Header
             HStack {
                 Image(systemName: agent.iconName)
                     .font(.caption)
@@ -110,18 +68,6 @@ struct AgentCard: View {
                 subscriptionContent
             case .localUsage:
                 localUsageContent
-            }
-
-            // Warning
-            if agent.isEstimated {
-                HStack {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.system(size: 8))
-                        .foregroundColor(.orange)
-                    Text("估计值 — SQLite 数据不完整")
-                        .font(.system(size: 8))
-                        .foregroundColor(.orange)
-                }
             }
         }
         .padding(10)
@@ -171,7 +117,6 @@ struct AgentCard: View {
 
     private var apiCostContent: some View {
         HStack(alignment: .center) {
-            // Cost (large)
             if let cost = agent.cost {
                 VStack(alignment: .leading, spacing: 1) {
                     Text("成本")
@@ -186,7 +131,6 @@ struct AgentCard: View {
 
             Spacer()
 
-            // Tokens
             if let tokens = agent.inputTokens, tokens > 0 {
                 VStack(alignment: .trailing, spacing: 1) {
                     Text("Token")
@@ -198,79 +142,36 @@ struct AgentCard: View {
                         .monospacedDigit()
                 }
             }
-
-            // Session count (derived)
-            if let tokens = agent.inputTokens, tokens > 100_000 {
-                let estSessions = tokens / 200_000
-                VStack(alignment: .trailing, spacing: 1) {
-                    Text("会话")
-                        .font(.system(size: 8))
-                        .foregroundColor(.secondary)
-                    Text("~\(estSessions)")
-                        .font(.caption)
-                        .monospacedDigit()
-                }
-                .padding(.leading, 8)
-            }
         }
     }
 
     // MARK: Subscription Content
 
     private var subscriptionContent: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            // Token line
+        HStack(alignment: .center) {
             if let used = agent.quotaUsed {
-                HStack {
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text("已用 Token")
-                            .font(.system(size: 8))
-                            .foregroundColor(.secondary)
-                        Text(TokenFormatter.format(Int(used)))
-                            .font(.subheadline)
-                            .fontWeight(.medium)
-                            .monospacedDigit()
-                    }
-
-                    Spacer()
-
-                    if let limit = agent.quotaLimit, limit > 0 {
-                        let pct = min(used / max(limit, 1), 1.0)
-                        VStack(alignment: .trailing, spacing: 1) {
-                            Text("配额")
-                                .font(.system(size: 8))
-                                .foregroundColor(.secondary)
-                            Text("\(Int(pct * 100))%")
-                                .font(.title3)
-                                .fontWeight(.bold)
-                                .foregroundColor(pct > 0.85 ? .red : pct > 0.6 ? .orange : .green)
-                        }
-                    }
-                }
-
-                // Progress bar
-                if let limit = agent.quotaLimit, limit > 0 {
-                    let pct = min(used / max(limit, 1), 1.0)
-                    ProgressBarView(
-                        value: pct,
-                        color: pct > 0.85 ? .red : pct > 0.6 ? .orange : .green,
-                        height: 5
-                    )
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("用量")
+                        .font(.system(size: 8))
+                        .foregroundColor(.secondary)
+                    Text(TokenFormatter.format(Int(used)))
+                        .font(.title3)
+                        .fontWeight(.bold)
+                        .monospacedDigit()
                 }
             }
 
-            // Reset + sessions
-            HStack(spacing: 12) {
-                if let reset = agent.resetTime {
-                    Text("🔄 \(reset, style: .relative)")
+            Spacer()
+
+            if let tokens = agent.inputTokens, tokens > 0 {
+                VStack(alignment: .trailing, spacing: 1) {
+                    Text("Token")
                         .font(.system(size: 8))
                         .foregroundColor(.secondary)
-                }
-                if let used = agent.quotaUsed {
-                    let estSessions = max(1, Int(used) / 500_000)
-                    Text("~\(estSessions) 次会话")
-                        .font(.system(size: 8))
-                        .foregroundColor(.secondary)
+                    Text(TokenFormatter.format(tokens))
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                        .monospacedDigit()
                 }
             }
         }

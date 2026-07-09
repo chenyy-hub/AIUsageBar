@@ -48,8 +48,16 @@ struct ProviderManagerView: View {
             .padding(12)
         }
         .frame(width: 340, height: 520)
-        .onAppear { loadProviders() }
-        .onChange(of: service.selectedTab) { _ in loadProviders() }
+        .onAppear {
+            service.setEditing(true)
+            loadProviders()
+        }
+        .onDisappear {
+            service.setEditing(false)
+        }
+        .onChange(of: service.selectedTab, initial: false) { _, _ in
+            if !service.isEditing { loadProviders() }
+        }
         .sheet(isPresented: $showAddSheet) {
             ProviderEditSheet(service: service, onSave: { loadProviders() })
         }
@@ -224,31 +232,7 @@ struct ProviderEditSheet: View {
                     .foregroundColor(.secondary)
                 Spacer()
                 Button("保存") {
-                    guard !provider.isEmpty else { return }
-                    let models = modelsText.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
-                    let modelsJSON = (try? JSONSerialization.data(withJSONObject: models)).flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
-
-                    let config = ProviderConfig(
-                        id: existing?.id ?? 0,
-                        provider: provider,
-                        providerType: providerType,
-                        displayName: displayName,
-                        baseUrl: baseUrl,
-                        modelsJSON: modelsJSON,
-                        keychainService: existing?.keychainService ?? "",
-                        isActive: true,
-                        lastTestStatus: "",
-                        lastTestTime: "",
-                        createdAt: existing?.createdAt ?? ""
-                    )
-                    service.providerService?.saveProvider(config)
-
-                    if !apiKey.isEmpty {
-                        service.providerService?.saveAPIKey(provider: provider, key: apiKey)
-                    }
-
-                    onSave()
-                    dismiss()
+                    save()
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(provider.isEmpty)
@@ -257,6 +241,7 @@ struct ProviderEditSheet: View {
         .padding(20)
         .frame(width: 340)
         .onAppear {
+            service.setEditing(true)
             if let e = existing {
                 provider = e.provider
                 providerType = e.providerType
@@ -265,6 +250,45 @@ struct ProviderEditSheet: View {
                 modelsText = e.models.joined(separator: ", ")
                 apiKey = service.providerService?.readAPIKey(provider: e.provider) ?? ""
             }
+        }
+        .onDisappear {
+            service.setEditing(false)
+        }
+    }
+
+    private func save() {
+        let trimmedProvider = provider.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedProvider.isEmpty else { return }
+
+        let models = modelsText
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        let modelsJSON = (try? JSONSerialization.data(withJSONObject: models)).flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
+
+        let config = ProviderConfig(
+            id: existing?.id ?? 0,
+            provider: trimmedProvider,
+            providerType: providerType,
+            displayName: displayName.trimmingCharacters(in: .whitespacesAndNewlines),
+            baseUrl: baseUrl.trimmingCharacters(in: .whitespacesAndNewlines),
+            modelsJSON: modelsJSON,
+            keychainService: existing?.keychainService ?? "",
+            isActive: true,
+            lastTestStatus: "",
+            lastTestTime: "",
+            createdAt: existing?.createdAt ?? ""
+        )
+        service.providerService?.saveProvider(config)
+
+        if !apiKey.isEmpty {
+            service.providerService?.saveAPIKey(provider: trimmedProvider, key: apiKey)
+        }
+
+        dismiss()
+        DispatchQueue.main.async {
+            onSave()
+            service.refresh()
         }
     }
 }

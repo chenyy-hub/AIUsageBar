@@ -60,8 +60,16 @@ struct ProfileManagerView: View {
             .padding(12)
         }
         .frame(width: 340, height: 520)
-        .onAppear { loadProfiles() }
-        .onChange(of: service.selectedTab) { _ in loadProfiles() }
+        .onAppear {
+            service.setEditing(true)
+            loadProfiles()
+        }
+        .onDisappear {
+            service.setEditing(false)
+        }
+        .onChange(of: service.selectedTab, initial: false) { _, _ in
+            if !service.isEditing { loadProfiles() }
+        }
         .sheet(isPresented: $showAddSheet) {
             ProfileEditSheet(service: service, onSave: { loadProfiles() })
         }
@@ -184,20 +192,7 @@ struct ProfileEditSheet: View {
                     .foregroundColor(.secondary)
                 Spacer()
                 Button("保存") {
-                    let newProfile = ModelProfile(
-                        id: 0,
-                        name: name,
-                        provider: provider,
-                        model: model,
-                        baseUrl: baseUrl,
-                        client: client,
-                        envConfigJSON: "{}",
-                        isActive: false,
-                        createdAt: ""
-                    )
-                    service.profileService?.saveProfile(newProfile)
-                    onSave()
-                    dismiss()
+                    save()
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(name.isEmpty || model.isEmpty)
@@ -205,6 +200,36 @@ struct ProfileEditSheet: View {
         }
         .padding(20)
         .frame(width: 330)
+        .onAppear {
+            service.setEditing(true)
+        }
+        .onDisappear {
+            service.setEditing(false)
+        }
+    }
+
+    private func save() {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedModel = model.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty, !trimmedModel.isEmpty else { return }
+
+        let newProfile = ModelProfile(
+            id: 0,
+            name: trimmedName,
+            provider: provider,
+            model: trimmedModel,
+            baseUrl: baseUrl.trimmingCharacters(in: .whitespacesAndNewlines),
+            client: client.trimmingCharacters(in: .whitespacesAndNewlines),
+            envConfigJSON: "{}",
+            isActive: false,
+            createdAt: ""
+        )
+        service.profileService?.saveProfile(newProfile)
+        dismiss()
+        DispatchQueue.main.async {
+            onSave()
+            service.refresh()
+        }
     }
 }
 

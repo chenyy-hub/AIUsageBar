@@ -48,7 +48,7 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
                 Slider(value: $refreshInterval, in: 10...300, step: 10)
-                    .onChange(of: refreshInterval) { newVal in
+                    .onChange(of: refreshInterval, initial: false) { _, newVal in
                         UserDefaults.standard.set(newVal, forKey: "refresh_interval")
                     }
             }
@@ -84,11 +84,15 @@ struct SettingsView: View {
         .padding(16)
         .frame(width: 320)
         .onAppear {
+            service.setEditing(true)
             dbPath = UserDefaults.standard.string(forKey: dbPathKey) ?? ""
             refreshInterval = {
                 let val = UserDefaults.standard.double(forKey: "refresh_interval")
                 return val > 0 ? val : 30
             }()
+        }
+        .onDisappear {
+            service.setEditing(false)
         }
     }
 

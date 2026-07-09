@@ -75,8 +75,16 @@ struct PricingManagerView: View {
             .padding(12)
         }
         .frame(width: 340, height: 520)
-        .onAppear { loadPricing() }
-        .onChange(of: service.selectedTab) { _ in loadPricing() }
+        .onAppear {
+            service.setEditing(true)
+            loadPricing()
+        }
+        .onDisappear {
+            service.setEditing(false)
+        }
+        .onChange(of: service.selectedTab, initial: false) { _, _ in
+            if !service.isEditing { loadPricing() }
+        }
         .sheet(isPresented: $showAddSheet) {
             PricingEditSheet(service: service, onSave: { loadPricing() })
         }
@@ -182,21 +190,21 @@ struct PricingRow: View {
                 .font(.system(size: 9))
                 .frame(width: 60)
                 .monospacedDigit()
-                .onChange(of: hitPrice) { _ in edited = true }
+                .onChange(of: hitPrice, initial: false) { _, _ in edited = true }
 
             TextField("", text: $missPrice)
                 .textFieldStyle(.roundedBorder)
                 .font(.system(size: 9))
                 .frame(width: 60)
                 .monospacedDigit()
-                .onChange(of: missPrice) { _ in edited = true }
+                .onChange(of: missPrice, initial: false) { _, _ in edited = true }
 
             TextField("", text: $outputPrice)
                 .textFieldStyle(.roundedBorder)
                 .font(.system(size: 9))
                 .frame(width: 50)
                 .monospacedDigit()
-                .onChange(of: outputPrice) { _ in edited = true }
+                .onChange(of: outputPrice, initial: false) { _, _ in edited = true }
 
             if edited {
                 Button("保存") {
@@ -266,17 +274,7 @@ struct PricingEditSheet: View {
                 Button("取消") { dismiss() }.buttonStyle(.plain).foregroundColor(.secondary)
                 Spacer()
                 Button("保存") {
-                    guard !provider.isEmpty, !model.isEmpty else { return }
-                    let p = ModelPricing(
-                        id: 0, provider: provider, model: model, currency: "CNY",
-                        inputCacheHitPrice: hitPrice,
-                        inputCacheMissPrice: missPrice,
-                        outputPrice: outputPrice,
-                        isCustom: true, updatedAt: ""
-                    )
-                    service.pricingService?.savePricing(p)
-                    onSave()
-                    dismiss()
+                    save()
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(provider.isEmpty || model.isEmpty)
@@ -284,5 +282,31 @@ struct PricingEditSheet: View {
         }
         .padding(20)
         .frame(width: 300)
+        .onAppear {
+            service.setEditing(true)
+        }
+        .onDisappear {
+            service.setEditing(false)
+        }
+    }
+
+    private func save() {
+        let trimmedProvider = provider.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedModel = model.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedProvider.isEmpty, !trimmedModel.isEmpty else { return }
+
+        let p = ModelPricing(
+            id: 0, provider: trimmedProvider, model: trimmedModel, currency: "CNY",
+            inputCacheHitPrice: hitPrice,
+            inputCacheMissPrice: missPrice,
+            outputPrice: outputPrice,
+            isCustom: true, updatedAt: ""
+        )
+        service.pricingService?.savePricing(p)
+        dismiss()
+        DispatchQueue.main.async {
+            onSave()
+            service.refresh()
+        }
     }
 }

@@ -13,16 +13,31 @@ final class DatabaseService {
     private let dbPath: String
     private let queue: DispatchQueue
 
+    /// Resolve demo database path (Bundle.app → Resources/demo/)
+    static var demoDBPath: String {
+        if let resourcePath = Bundle.main.resourcePath {
+            let candidate = "\(resourcePath)/demo/demo_usage.db"
+            if FileManager.default.fileExists(atPath: candidate) {
+                return candidate
+            }
+        }
+        // Fallback for development (swift build)
+        let cwd = FileManager.default.currentDirectoryPath
+        return "\(cwd)/Resources/demo/demo_usage.db"
+    }
+
     // MARK: Connections
     private var db: OpaquePointer?       // READONLY — usage_records
     private var mgmtDb: OpaquePointer?   // READWRITE — management tables
 
     // MARK: Init
 
-    init?(path: String? = nil) {
+    init?(path: String? = nil, demo: Bool = false) {
         self.queue = DispatchQueue(label: "com.a1.ai-usage-bar.db", qos: .utility)
 
-        if let path, !path.isEmpty {
+        if demo {
+            self.dbPath = DatabaseService.demoDBPath
+        } else if let path, !path.isEmpty {
             self.dbPath = URL(fileURLWithPath: path).resolvingSymlinksInPath().path
         } else {
             let home = NSHomeDirectory()
@@ -585,7 +600,102 @@ final class DatabaseService {
     // MARK: - V5 Agent Usage Queries
     // ================================================================
 
-    /// API cost usage (per client/provider)
+    /// API-only today summary (from api_usage_records)
+    func apiTodaySummary() -> TodaySummary {
+        let dateStr = todayDateString()
+        let rows = query("""
+            SELECT COALESCE(SUM(total_cost), 0) AS total_cost,
+                   COUNT(*) AS request_count,
+                   COALESCE(SUM(input_tokens + output_tokens), 0) AS tokens
+            FROM api_usage_records
+            WHERE substr(timestamp,1,10) = ?
+        """, args: [dateStr])
+        guard let row = rows.first else {
+            return TodaySummary(totalCost: 0, inputTokens: 0, outputTokens: 0, cacheTokens: 0, requestCount: 0)
+        }
+        return TodaySummary(
+            totalCost: row["total_cost"] as? Double ?? 0,
+            inputTokens: (row["tokens"] as? Int ?? 0) / 2,
+            outputTokens: (row["tokens"] as? Int ?? 0) / 2,
+            cacheTokens: 0,
+            requestCount: row["request_count"] as? Int ?? 0
+        )
+    }
+
+    /// API total stats (from api_usage_records)
+    func apiTotalStats() -> TotalStats {
+        let rows = query("""
+            SELECT COALESCE(SUM(total_cost), 0) AS total_cost,
+                   COALESCE(SUM(input_tokens + output_tokens), 0) AS total_tokens,
+                   COUNT(*) AS total_requests
+            FROM api_usage_records
+        """)
+        guard let row = rows.first else {
+            return TotalStats(totalCost: 0, totalInput: 0, totalOutput: 0, totalCacheRead: 0, totalRequests: 0, totalSessions: 0, totalProjects: 0)
+        }
+        return TotalStats(
+            totalCost: row["total_cost"] as? Double ?? 0,
+            totalInput: row["total_tokens"] as? Int ?? 0,
+            totalOutput: 0,
+            totalCacheRead: 0,
+            totalRequests: row["total_requests"] as? Int ?? 0,
+            totalSessions: 0,
+            totalProjects: 0
+        )
+    }
+
+    /// Subscription stats (from quota_usage_records)
+    func subscriptionStats() -> (sessions: Int, totalTokens: Double, providers: [String]) {
+        let rows = query("""
+            SELECT COUNT(*) AS sessions,
+                   COALESCE(SUM(CASE WHEN tokens_used > 0 THEN tokens_used ELSE quota_used END), 0) AS total_tokens,
+                   GROUP_CONCAT(DISTINCT provider) AS providers
+            FROM quota_usage_records
+        """)
+        guard let row = rows.first else { return (0, 0, []) }
+        let provs = (row["providers"] as? String ?? "").split(separator: ",").map(String.init)
+        return (
+            row["sessions"] as? Int ?? 0,
+            row["total_tokens"] as? Double ?? 0,
+            provs
+        )
+    }
+
+    /// API model breakdown (from api_usage_records, cost only)
+    func apiModelBreakdown() -> [(model: String, cost: Double, tokens: Int)] {
+        let rows = query("""
+            SELECT model,
+                   COALESCE(SUM(total_cost), 0) AS total_cost,
+                   COALESCE(SUM(input_tokens + output_tokens), 0) AS tokens
+            FROM api_usage_records
+            GROUP BY model
+            ORDER BY total_cost DESC
+        """)
+        return rows.map {
+            ($0["model"] as? String ?? "unknown",
+             $0["total_cost"] as? Double ?? 0,
+             $0["tokens"] as? Int ?? 0)
+        }
+    }
+
+    /// Subscription model breakdown (from quota_usage_records, tokens only, no cost)
+    func subscriptionModelBreakdown() -> [(model: String, sessions: Int, tokens: Double)] {
+        let rows = query("""
+            SELECT model,
+                   COUNT(*) AS sessions,
+                   COALESCE(SUM(CASE WHEN tokens_used > 0 THEN tokens_used ELSE quota_used END), 0) AS total_tokens
+            FROM quota_usage_records
+            GROUP BY model
+            ORDER BY total_tokens DESC
+        """)
+        return rows.map {
+            ($0["model"] as? String ?? "unknown",
+             $0["sessions"] as? Int ?? 0,
+             $0["total_tokens"] as? Double ?? 0)
+        }
+    }
+
+    /// API usage by client (from api_usage_records)
     func apiUsageByClient() -> [(client: String, provider: String, cost: Double, tokens: Int)] {
         let rows = query("""
             SELECT client, provider,
@@ -608,7 +718,7 @@ final class DatabaseService {
         let rows = query("""
             SELECT client, provider,
                    COUNT(*) AS sessions,
-                   COALESCE(SUM(quota_used), 0) AS total_tokens,
+                   COALESCE(SUM(CASE WHEN tokens_used > 0 THEN tokens_used ELSE quota_used END), 0) AS total_tokens,
                    MAX(is_estimated) AS estimated
             FROM quota_usage_records
             GROUP BY client, provider
@@ -652,7 +762,7 @@ final class DatabaseService {
                 cost: nil,
                 inputTokens: Int(row.totalTokens),
                 outputTokens: 0,
-                quotaUsed: row.totalTokens,
+                quotaUsed: nil,
                 quotaLimit: nil,
                 resetTime: nil,
                 isEstimated: row.estimated
@@ -839,5 +949,18 @@ final class DatabaseService {
         let fmt = DateFormatter()
         fmt.dateFormat = "yyyy-MM-dd"
         return fmt.string(from: date)
+    }
+
+    private func parseDate(_ value: String) -> Date? {
+        guard !value.isEmpty else { return nil }
+        let iso = ISO8601DateFormatter()
+        if let date = iso.date(from: value) { return date }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        for pattern in ["yyyy-MM-dd'T'HH:mm:ss", "yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd"] {
+            formatter.dateFormat = pattern
+            if let date = formatter.date(from: value) { return date }
+        }
+        return nil
     }
 }

@@ -70,7 +70,7 @@ struct BudgetManagerView: View {
         }
         .frame(width: 340, height: 520)
         .onAppear { refresh() }
-        .onChange(of: service.selectedTab) { _ in refresh() }
+        .onChange(of: service.selectedTab, initial: false) { _, _ in refresh() }
         .sheet(isPresented: $showAddSheet) {
             BudgetEditSheet(service: service, onSave: { refresh() })
         }

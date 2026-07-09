@@ -64,6 +64,26 @@ struct TotalStats {
     let totalProjects: Int
 }
 
+struct CodexQuotaStatus {
+    let sessionUsedPercent: Double?
+    let sessionRemainingPercent: Double?
+    let sessionResetTime: Date?
+    let weeklyUsedPercent: Double?
+    let weeklyRemainingPercent: Double?
+    let weeklyResetTime: Date?
+    let isAvailable: Bool
+
+    static let unavailable = CodexQuotaStatus(
+        sessionUsedPercent: nil,
+        sessionRemainingPercent: nil,
+        sessionResetTime: nil,
+        weeklyUsedPercent: nil,
+        weeklyRemainingPercent: nil,
+        weeklyResetTime: nil,
+        isAvailable: false
+    )
+}
+
 struct DBStatus {
     let recordCount: Int
     let hasData: Bool
@@ -217,6 +237,50 @@ struct AgentResource: Identifiable {
         case .apiCost:           return "network"
         case .subscriptionQuota: return "creditcard.fill"
         case .localUsage:        return "desktopcomputer"
+        }
+    }
+}
+
+// MARK: - Agent Provider Status (v1.1.1)
+
+enum AgentConnectionStatus: String, Codable {
+    case connected
+    case syncing
+    case unavailable
+    case noData
+}
+
+struct AgentProviderStatus: Identifiable {
+    let id = UUID()
+    let client: String
+    let displayName: String
+    let status: AgentConnectionStatus
+    let lastSync: Date?
+    let recordCount: Int
+
+    var iconName: String {
+        switch client {
+        case "claude-code": return "sparkles"
+        case "codex":       return "chevron.left.forwardslash.chevron.right"
+        default:            return "gearshape"
+        }
+    }
+
+    var statusIcon: String {
+        switch status {
+        case .connected:    return "circle.fill"
+        case .syncing:      return "arrow.triangle.2.circlepath"
+        case .unavailable:  return "exclamationmark.triangle.fill"
+        case .noData:       return "circle.dashed"
+        }
+    }
+
+    var statusColor: String {
+        switch status {
+        case .connected:    return "green"
+        case .syncing:      return "orange"
+        case .unavailable:  return "red"
+        case .noData:       return "gray"
         }
     }
 }

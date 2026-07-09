@@ -24,14 +24,14 @@
 
 Modern AI coding workflows involve multiple agents — Claude Code, Codex, DeepSeek, OpenAI, Anthropic — each with their own usage tracking, token consumption, and cost structures scattered across different platforms.
 
-**AIUsageBar** provides a unified, local-first observability platform that lives in your macOS menu bar. It aggregates usage data from all your AI agents into a single dashboard, giving you real-time visibility into token consumption, API costs, and subscription quotas.
+**AIUsageBar** is a native macOS menu bar application for monitoring AI coding agent usage, API cost analytics, subscription quotas, and multi-provider AI workflows.
 
 ### Why AIUsageBar?
 
-- **Unified view**: All AI agent usage in one place
-- **Cost control**: Track spending across providers and models
-- **Privacy-first**: Everything stays on your machine
-- **Extensible**: Plugin architecture for future AI agents
+- **API Cost Tracking** — Separate API usage from subscription quota. Three-tier pricing model (cache hit / miss / output).
+- **Subscription Monitoring** — Track Codex Plus session and weekly usage, with progress bars and reset timers.
+- **Local Privacy-first Storage** — All data in SQLite. API keys in macOS Keychain. No telemetry, no cloud upload.
+- **Multi Agent Dashboard** — Unified view of Claude Code, Codex, DeepSeek, OpenAI, Anthropic, and OpenRouter.
 
 ---
 
@@ -64,13 +64,33 @@ cost = cache_hit_tokens × hit_price
 
 ### 🖥️ Menu Bar Experience
 
-The menu bar icon dynamically shows:
+The menu bar icon dynamically shows based on current status:
 
-- **AI 🤖** — when subscription-based agents are active
-- **¥12.50** — API cost for today
-- **443M** — subscription token usage
+- **🤖 ¥12.50** — API cost when there's daily usage today
+- **⚠️ Codex 90%** — warning when Codex subscription is near limit
+- **AI ✓** — normal idle state with no active usage
 
-Click to open the full dashboard with tabbed views for Dashboard, Provider management, Pricing editor, and Budget tracking.
+Click to open the full dashboard with tabbed views for Dashboard, Provider management, Pricing editor, Budget tracking, and Data Health.
+
+### 📱 Dashboard Views
+
+| View | Description |
+|------|-------------|
+| **API Cost** | Real-time API spending with provider breakdown |
+| **Codex Plus** | Session and weekly usage with progress bars and reset timer |
+| **Model Usage** | API Models (with cost) and Subscription Models (tokens only) |
+| **Agent Status** | Connection status for each AI agent |
+| **Statistics** | API Usage and Subscription Usage split into separate areas |
+
+### 🧪 Demo Mode
+
+Run without a real database to see the full UI:
+
+```bash
+.build/debug/AIUsageBar --demo
+```
+
+This loads sample data from `Resources/demo/demo_usage.db` with pre-populated API and subscription records.
 
 ### 🔒 Privacy First
 
@@ -83,11 +103,30 @@ All data stays on your machine:
 
 ---
 
+## Demo Mode
+
+AIUsageBar can run in demo mode without any real AI agent data:
+
+```bash
+# Build and run with demo data
+swift build --configuration debug
+.build/debug/AIUsageBar --demo
+```
+
+This loads a pre-populated SQLite database from `Resources/demo/demo_usage.db` containing:
+- **20 API records** — simulated Claude Code + DeepSeek usage with realistic token counts and costs
+- **5 Quota records** — simulated Codex Plus subscription data with session and weekly usage
+
+Demo mode is useful for:
+- Evaluating the UI before setting up real data sources
+- Development and testing
+- Taking screenshots for documentation
+
 ## Architecture
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│                    AI UsageBar.app                        │
+│                    AIUsageBar.app                        │
 │               SwiftUI · MenuBarExtra                      │
 │                                                           │
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐ │
@@ -96,21 +135,31 @@ All data stays on your machine:
 │  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘ │
 │       │             │             │             │        │
 │  ┌────┴─────────────┴─────────────┴─────────────┴────┐   │
-│  │                DatabaseService                     │   │
-│  │            (SQLite3 · Keychain)                    │   │
+│  │              DatabaseService                       │   │
+│  │   (READONLY · SQLite3 · Keychain · WAL mode)      │   │
 │  └─────────────────────┬─────────────────────────────┘   │
 └────────────────────────┼────────────────────────────────┘
                          │
-┌────────────────────────┼────────────────────────────────┐
-│   ai-cost-monitor      │        (Python Backend)         │
-│   ┌────────────────────┴─────┐                           │
-│   │    Scanner Dispatcher    │                           │
-│   │  ┌────────┐ ┌─────────┐  │                           │
-│   │  │ Claude  │ │  Codex  │  │                           │
-│   │  │  JSONL  │ │  SQLite │  │                           │
-│   │  └────────┘ └─────────┘  │                           │
-│   └──────────────────────────┘                           │
-└──────────────────────────────────────────────────────────┘
+        ┌────────────────┼────────────────┐
+        ▼                ▼                ▼
+┌──────────────┐  ┌──────────────┐  ┌──────────────┐
+│ API Cost     │  │ Subscription │  │ Management   │
+│ Records      │  │ Records      │  │ Tables       │
+│ (api_usage)  │  │ (quota_usage)│  │ (profiles,   │
+│              │  │              │  │  providers,  │
+│ Claude Code  │  │ Codex Plus   │  │  pricing,    │
+│ DeepSeek API │  │ gpt-5.5      │  │  budgets)    │
+└──────────────┘  └──────────────┘  └──────────────┘
+        ▲                ▲
+        │                │
+┌───────┴───────┐  ┌────┴───────┐
+│ ClaudeScanner │  │CodexScanner│
+│ (JSONL)       │  │(SQLite)    │
+└───────────────┘  └────────────┘
+        │                │
+  ┌─────┴─────────────────┴─────┐
+  │   Python Scanner Backend   │
+  └────────────────────────────┘
 ```
 
 ### Data Flow
@@ -120,7 +169,30 @@ All data stays on your machine:
 3. **Cost engine** calculates costs using configurable three-tier pricing
 4. **SwiftUI app** reads the database via `DatabaseService` and renders the dashboard
 
-### Tech Stack
+### Release Guide
+
+```bash
+# 1. Update version
+# Edit Resources/Info.plist: CFBundleShortVersionString and CFBundleVersion
+
+# 2. Build release
+bash Scripts/build_release.sh
+
+# 3. Sign (if Developer ID available)
+bash Scripts/sign_app.sh
+
+# 4. Test
+open build/release/AIUsageBar.app
+
+# 5. Tag and push
+git tag -a v1.1.0 -m "AIUsageBar v1.1.0"
+git push origin v1.1.0
+
+# 6. Create GitHub Release
+# Upload build/release/AIUsageBar.app.zip
+```
+
+## Tech Stack
 
 | Layer | Technology |
 |-------|-----------|

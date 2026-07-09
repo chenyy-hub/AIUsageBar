@@ -2,43 +2,50 @@ import SwiftUI
 
 // MARK: - AIUsageBar App
 
-/// macOS Menu Bar app — AI Agent Resource Monitor v5.2
+/// macOS Menu Bar — AI Agent Usage Observability Dashboard v1.1
 ///
-/// 菜单栏动态标签策略：
-///   - 纯订阅: 显示 AI 🤖 + token 用量
-///   - 纯 API:  显示 ¥cost
-///   - 混合:    显示 AI 🤖 + 短 cost
+/// 菜单栏智能状态：
+///   - API 有消耗 → 显示 "🤖 ¥xxx"
+///   - 正常             → 显示 "AI ✓"
+///
 @main
 struct AIUsageBarApp: App {
-    @StateObject private var service = UsageService()
+    @StateObject private var service: UsageService
+
+    init() {
+        let isDemo = CommandLine.arguments.contains("--demo")
+        _service = StateObject(wrappedValue: UsageService(demo: isDemo))
+    }
+
+    private var menuLabel: some View {
+        let apiCost = service.apiTotalStats.totalCost
+        let hasUsage = service.apiTotalStats.totalRequests > 0
+
+        if hasUsage && apiCost > 0 {
+            // API 有消耗
+            return AnyView(HStack(spacing: 4) {
+                Text("🤖")
+                    .font(.system(size: 11))
+                Text(service.todayCostText)
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+            })
+        } else {
+            // 正常状态
+            return AnyView(HStack(spacing: 4) {
+                Text("AI")
+                    .font(.system(size: 11, weight: .medium))
+                Text("✓")
+                    .font(.system(size: 11))
+                    .foregroundColor(.green)
+            })
+        }
+    }
 
     var body: some Scene {
         MenuBarExtra {
             MenuBarContentView(service: service)
         } label: {
-            HStack(spacing: 4) {
-                if service.hasSubscription {
-                    Image(systemName: "cpu")
-                        .font(.system(size: 10))
-                    Text(service.primaryAgentLabel)
-                        .font(.system(size: 11, weight: .medium, design: .monospaced))
-                    if !service.secondaryLabel.isEmpty {
-                        Text(service.secondaryLabel)
-                            .font(.system(size: 10))
-                            .foregroundColor(.secondary)
-                    }
-                } else if service.hasApiCost {
-                    Image(systemName: "chart.pie.fill")
-                        .font(.system(size: 12))
-                    Text(service.primaryAgentLabel)
-                        .font(.system(size: 11, weight: .medium, design: .monospaced))
-                } else {
-                    Image(systemName: "chart.pie.fill")
-                        .font(.system(size: 12))
-                    Text("¥...")
-                        .font(.system(size: 11, weight: .medium, design: .monospaced))
-                }
-            }
+            menuLabel
         }
         .menuBarExtraStyle(.window)
     }

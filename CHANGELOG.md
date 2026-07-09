@@ -5,6 +5,90 @@ All notable changes to AIUsageBar will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.1.1] — 2026-07-09
+
+### Added
+
++ **Codex Subscription Dashboard Enhancement**
+  - Session usage with progress bar (used % + remaining %)
+  - Weekly usage with progress bar (used % + remaining %)
+  - Reset time display (relative countdown)
+  - Model breakdown by tokens and session count
+
++ **Agent Provider Status System**
+  - New `AgentProviderStatus` model (connected/syncing/unavailable/noData)
+  - Dashboard "Agent Status" card showing real-time connection state
+  - Status indicators with color-coded dots (green/orange/red/gray)
+
++ **DataHealthView Upgrade**
+  - Scanner status cards for Claude Code and Codex
+  - Last sync timestamps with "time ago" formatting
+  - Database health overview (WAL mode, table count, record count)
+  - Agent-level status with icons and connection indicators
+
++ **Demo Mode**
+  - `--demo` launch argument for UI evaluation without real data
+  - Bundled demo database (20 API records + 5 quota records)
+  - No configuration required — clone, build, and run with `--demo`
+
++ **GitHub Actions CI**
+  - Automated build workflow (push + PR to main)
+  - Debug and release builds
+  - App bundle artifact upload
+
++ **Smart Menu Bar**
+  - "🤖 ¥xxx" — API has daily usage
+  - "⚠️ Codex xx%" — subscription near limit
+  - "AI ✓" — normal idle state
+
+### Changed
+- Dashboard: Codex card redesigned with session/weekly progress bars
+- DataHealthView: Now uses AgentProviderStatus model for consistent display
+- README: Architecture diagram updated with dual-pipeline layout
+
+### Fixed
+- All SwiftUI `onChange(of:)` deprecation warnings migrated to `initial: false` API
+
+## [1.1.0] — 2026-07-09
+
+### Added
+
++ **Separate API Cost and Subscription Usage**
+  - Dashboard now has two independent data pipelines (api_usage_records + quota_usage_records)
+  - API statistics no longer mixed with subscription data
+  - Global statistics split into "API Usage" and "Subscription Usage" sections
+
++ **Codex Plus Subscription Dashboard**
+  - Dedicated Codex card with usage progress bars
+  - Session and weekly quota visualization
+  - Model breakdown (gpt-5.5, codex-auto-review)
+  - Data freshness indicator with last sync timestamp
+  - No cost/price displayed for subscription data
+
++ **Dual Refresh Scheduler**
+  - API data refreshes every 30 seconds (apiTimer)
+  - Codex data refreshes every 120 seconds (codexTimer)
+  - Independent timers, no cross-blocking
+
++ **Improved Dashboard Layout**
+  - Data freshness bar at top ("API 30s ago · Codex 2min ago")
+  - "API Cost" hero with provider breakdown
+  - "Model Usage" with two sections (API Models + Subscription Models)
+  - "Statistics" split into API Usage and Subscription Usage areas
+
++ **Smart Menu Bar**
+  - Shows "🤖 ¥xxx" when API has daily usage
+  - Shows "⚠️ Codex xx%" when subscription is near limit
+  - Shows "AI ✓" for normal idle state
+
+### Fixed
+- All SwiftUI `onChange(of:)` deprecation warnings (macOS 14+ API migration)
+- Removed project-level cost display (projects are not cost units)
+
+### Changed
+- Dashboard title: "AI 成本" → "API Cost" (product positioning)
+- Model Distribution renamed to "Model Usage" with API/Subscription split
+
 ## [1.0.0] — 2026-07-09
 
 ### 🎉 Initial Release
