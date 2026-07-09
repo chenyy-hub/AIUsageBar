@@ -1,0 +1,45 @@
+# Build
+.build/
+build/
+DerivedData/
+*.xcworkspace
+
+# macOS
+.DS_Store
+
+# Environment
+.env
+.env.*
+*.key
+*.pem
+
+# Database (user-specific, local only)
+*.db
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+runtime/
+
+# Logs
+*.log
+*.ips
+*.stdout
+
+# IDE
+.vscode/
+.idea/
+
+# Editor temp files
+*.swp
+*.swo
+*~
+\#*\#
+
+# Xcode
+*.xcuserdata
+*.xcodeproj/
+xcuserdata/
+
+# User data (agent logs, never commit)
+.claude/
+.codex/
