@@ -4,7 +4,6 @@ import SwiftUI
 
 struct BudgetManagerView: View {
     @ObservedObject var service: UsageService
-    @State private var showAddSheet = false
     @State private var budgets: [Budget] = []
     @State private var balances: [Int: BudgetService.BalanceResult] = [:]
     @State private var dailySpending: [(String, Double)] = []
@@ -57,7 +56,7 @@ struct BudgetManagerView: View {
                 }
 
                 Button {
-                    showAddSheet = true
+                    service.windowManager?.openBudgetEdit()
                 } label: {
                     Label("添加预算", systemImage: "plus.circle")
                         .font(.subheadline)
@@ -71,9 +70,6 @@ struct BudgetManagerView: View {
         .frame(width: 340, height: 520)
         .onAppear { refresh() }
         .onChange(of: service.selectedTab, initial: false) { _, _ in refresh() }
-        .sheet(isPresented: $showAddSheet) {
-            BudgetEditSheet(service: service, onSave: { refresh() })
-        }
     }
 
     private func refresh() {
@@ -177,93 +173,4 @@ struct StatItem: View {
     }
 }
 
-// MARK: - Add Budget Sheet
-
-struct BudgetEditSheet: View {
-    @ObservedObject var service: UsageService
-    var existing: Budget? = nil
-    let onSave: () -> Void
-    @Environment(\.dismiss) private var dismiss
-
-    @State private var name = ""
-    @State private var provider = ""
-    @State private var initialBalance: Double = 1000
-    @State private var currency = "CNY"
-    @State private var periodType = "total"
-
-    private let periodOptions = [
-        ("total", "累计"),
-        ("daily", "每日"),
-        ("weekly", "每周"),
-        ("monthly", "每月"),
-    ]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Image(systemName: "creditcard.fill").foregroundColor(.accentColor)
-                Text(existing != nil ? "编辑预算" : "添加预算").font(.headline)
-            }
-
-            Group {
-                TextField("名称 (可选)", text: $name)
-                    .textFieldStyle(.roundedBorder)
-
-                TextField("Provider (留空 = 全局)", text: $provider)
-                    .textFieldStyle(.roundedBorder)
-
-                HStack {
-                    Text("初始余额")
-                    Spacer()
-                    TextField("", value: $initialBalance, format: .number)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 120)
-                        .monospacedDigit()
-                }
-
-                Picker("周期", selection: $periodType) {
-                    ForEach(periodOptions, id: \.0) { opt in
-                        Text(opt.1).tag(opt.0)
-                    }
-                }
-            }
-            .font(.subheadline)
-
-            HStack {
-                Button("取消") { dismiss() }
-                    .buttonStyle(.plain)
-                    .foregroundColor(.secondary)
-                Spacer()
-                Button("保存") {
-                    let budget = Budget(
-                        id: existing?.id ?? 0,
-                        name: name,
-                        provider: provider,
-                        initialBalance: initialBalance,
-                        currency: currency,
-                        periodType: periodType,
-                        startDate: existing?.startDate ?? "",
-                        isActive: true,
-                        createdAt: existing?.createdAt ?? ""
-                    )
-                    service.budgetService?.saveBudget(budget)
-                    onSave()
-                    dismiss()
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(initialBalance <= 0)
-            }
-        }
-        .padding(20)
-        .frame(width: 320)
-        .onAppear {
-            if let e = existing {
-                name = e.name
-                provider = e.provider
-                initialBalance = e.initialBalance
-                currency = e.currency
-                periodType = e.periodType
-            }
-        }
-    }
-}
+// BudgetEditView is in EditWindowViews.swift — uses WindowManager + @State draft

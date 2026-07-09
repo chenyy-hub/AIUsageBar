@@ -9,6 +9,11 @@ struct MenuBarContentView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // Quick Status Bar (TASK 4)
+            quickStatusBar
+
+            Divider()
+
             // Tab bar
             Picker("", selection: $service.selectedTab) {
                 ForEach(AppTab.allCases) { tab in
@@ -17,7 +22,7 @@ struct MenuBarContentView: View {
             }
             .pickerStyle(.segmented)
             .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(.vertical, 6)
 
             // Tab content
             tabContent
@@ -26,6 +31,63 @@ struct MenuBarContentView: View {
             Divider()
             bottomBar
         }
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    // MARK: Quick Status Bar
+
+    private var quickStatusBar: some View {
+        HStack(spacing: 12) {
+            // Brand
+            HStack(spacing: 4) {
+                Circle()
+                    .fill(Color.accentColor)
+                    .frame(width: 6, height: 6)
+                Text("AIUsageBar")
+                    .font(.system(size: 9, weight: .semibold))
+            }
+
+            Spacer()
+
+            // API 成本
+            VStack(alignment: .trailing, spacing: 0) {
+                Text(L.cost)
+                    .font(.system(size: 7))
+                    .foregroundColor(.secondary)
+                Text(CostFormatter.formatShort(service.apiTotalStats.totalCost))
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+            }
+            .frame(width: 60)
+
+            // Codex 额度
+            VStack(alignment: .trailing, spacing: 0) {
+                Text("Codex")
+                    .font(.system(size: 7))
+                    .foregroundColor(.secondary)
+                Text({
+                    let pct = service.codexQuotaStatus.sessionPercent ?? service.codexQuotaStatus.weeklyPercent ?? -1
+                    return pct >= 0 ? "\(Int(pct))%" : "N/A"
+                }())
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .foregroundColor({
+                        let pct = service.codexQuotaStatus.sessionPercent ?? service.codexQuotaStatus.weeklyPercent ?? -1
+                        return pct >= 80 ? .red : .primary
+                    }())
+            }
+            .frame(width: 50)
+
+            // 同步时间
+            VStack(alignment: .trailing, spacing: 0) {
+                Text(L.syncTime)
+                    .font(.system(size: 7))
+                    .foregroundColor(.secondary)
+                Text(L.ago(Int(-service.lastApiSync.timeIntervalSinceNow)))
+                    .font(.system(size: 9, design: .monospaced))
+            }
+            .frame(width: 55)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 6)
         .background(Color(nsColor: .windowBackgroundColor))
     }
 
@@ -98,5 +160,13 @@ struct MenuBarContentView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
+    }
+
+    // MARK: Helpers
+
+    private func timeAgo(_ date: Date) -> String {
+        let interval = Int(-date.timeIntervalSinceNow)
+        if interval < 60 { return "\(interval)s ago" }
+        return "\(interval / 60)min ago"
     }
 }

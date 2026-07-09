@@ -4,7 +4,7 @@ import SwiftUI
 
 struct ProviderManagerView: View {
     @ObservedObject var service: UsageService
-    @State private var showAddSheet = false
+    // 使用 WindowManager 替代 .sheet() — 见 service.windowManager
     @State private var providers: [ProviderConfig] = []
     @State private var testingProvider: String?
     @State private var testResult: String?
@@ -30,13 +30,16 @@ struct ProviderManagerView: View {
                             service: service,
                             testingProvider: $testingProvider,
                             testResult: $testResult,
+                            onEdit: {
+                                service.windowManager?.openProviderEdit(existing: config)
+                            },
                             onChanged: { loadProviders() }
                         )
                     }
                 }
 
                 Button {
-                    showAddSheet = true
+                    service.windowManager?.openProviderEdit()
                 } label: {
                     Label("添加供应商", systemImage: "plus.circle")
                         .font(.subheadline)
@@ -49,17 +52,10 @@ struct ProviderManagerView: View {
         }
         .frame(width: 340, height: 520)
         .onAppear {
-            service.setEditing(true)
             loadProviders()
         }
-        .onDisappear {
-            service.setEditing(false)
-        }
         .onChange(of: service.selectedTab, initial: false) { _, _ in
-            if !service.isEditing { loadProviders() }
-        }
-        .sheet(isPresented: $showAddSheet) {
-            ProviderEditSheet(service: service, onSave: { loadProviders() })
+            loadProviders()
         }
     }
 
@@ -75,7 +71,7 @@ struct ProviderCard: View {
     @ObservedObject var service: UsageService
     @Binding var testingProvider: String?
     @Binding var testResult: String?
-    @State private var showEditSheet = false
+    let onEdit: () -> Void
     let onChanged: () -> Void
 
     var body: some View {
@@ -100,7 +96,7 @@ struct ProviderCard: View {
                 }
 
                 Button {
-                    showEditSheet = true
+                    onEdit()
                 } label: {
                     Image(systemName: "pencil")
                         .font(.caption)
@@ -156,9 +152,6 @@ struct ProviderCard: View {
             RoundedRectangle(cornerRadius: 10)
                 .fill(Color(nsColor: .windowBackgroundColor))
         )
-        .sheet(isPresented: $showEditSheet) {
-            ProviderEditSheet(service: service, existing: config, onSave: onChanged)
-        }
     }
 
     private func testProvider(_ config: ProviderConfig) {
@@ -177,121 +170,6 @@ struct ProviderCard: View {
     }
 }
 
-// MARK: - Add / Edit Provider Sheet
-
-struct ProviderEditSheet: View {
-    @ObservedObject var service: UsageService
-    var existing: ProviderConfig? = nil
-    let onSave: () -> Void
-    @Environment(\.dismiss) private var dismiss
-
-    @State private var provider = ""
-    @State private var providerType = "openai-compatible"
-    @State private var displayName = ""
-    @State private var baseUrl = ""
-    @State private var modelsText = ""
-    @State private var apiKey = ""
-
-    private let typeOptions = ProviderAdapterType.allCases
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Image(systemName: "key.fill").foregroundColor(.accentColor)
-                Text(existing != nil ? "编辑供应商" : "添加供应商").font(.headline)
-            }
-
-            Group {
-                TextField("Provider 名称 (如 deepseek)", text: $provider)
-                    .textFieldStyle(.roundedBorder)
-                    .disabled(existing != nil)
-
-                Picker("类型", selection: $providerType) {
-                    ForEach(typeOptions) { opt in
-                        Text(opt.displayName).tag(opt.rawValue)
-                    }
-                }
-
-                TextField("显示名称 (可选)", text: $displayName)
-                    .textFieldStyle(.roundedBorder)
-
-                TextField("Base URL", text: $baseUrl)
-                    .textFieldStyle(.roundedBorder)
-
-                TextField("模型列表 (逗号分隔)", text: $modelsText)
-                    .textFieldStyle(.roundedBorder)
-
-                SecureField("API Key (存储在 Keychain)", text: $apiKey)
-                    .textFieldStyle(.roundedBorder)
-            }
-            .font(.subheadline)
-
-            HStack {
-                Button("取消") { dismiss() }
-                    .buttonStyle(.plain)
-                    .foregroundColor(.secondary)
-                Spacer()
-                Button("保存") {
-                    save()
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(provider.isEmpty)
-            }
-        }
-        .padding(20)
-        .frame(width: 340)
-        .onAppear {
-            service.setEditing(true)
-            if let e = existing {
-                provider = e.provider
-                providerType = e.providerType
-                displayName = e.displayName
-                baseUrl = e.baseUrl
-                modelsText = e.models.joined(separator: ", ")
-                apiKey = service.providerService?.readAPIKey(provider: e.provider) ?? ""
-            }
-        }
-        .onDisappear {
-            service.setEditing(false)
-        }
-    }
-
-    private func save() {
-        let trimmedProvider = provider.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedProvider.isEmpty else { return }
-
-        let models = modelsText
-            .split(separator: ",")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-        let modelsJSON = (try? JSONSerialization.data(withJSONObject: models)).flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
-
-        let config = ProviderConfig(
-            id: existing?.id ?? 0,
-            provider: trimmedProvider,
-            providerType: providerType,
-            displayName: displayName.trimmingCharacters(in: .whitespacesAndNewlines),
-            baseUrl: baseUrl.trimmingCharacters(in: .whitespacesAndNewlines),
-            modelsJSON: modelsJSON,
-            keychainService: existing?.keychainService ?? "",
-            isActive: true,
-            lastTestStatus: "",
-            lastTestTime: "",
-            createdAt: existing?.createdAt ?? ""
-        )
-        service.providerService?.saveProvider(config)
-
-        if !apiKey.isEmpty {
-            service.providerService?.saveAPIKey(provider: trimmedProvider, key: apiKey)
-        }
-
-        dismiss()
-        DispatchQueue.main.async {
-            onSave()
-            service.refresh()
-        }
-    }
-}
 
 // MARK: - Identifiable conformance for ProviderAdapterType
 

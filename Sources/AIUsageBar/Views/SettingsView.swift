@@ -84,15 +84,11 @@ struct SettingsView: View {
         .padding(16)
         .frame(width: 320)
         .onAppear {
-            service.setEditing(true)
             dbPath = UserDefaults.standard.string(forKey: dbPathKey) ?? ""
             refreshInterval = {
                 let val = UserDefaults.standard.double(forKey: "refresh_interval")
                 return val > 0 ? val : 30
             }()
-        }
-        .onDisappear {
-            service.setEditing(false)
         }
     }
 

@@ -14,7 +14,7 @@ final class ProviderService {
     private let db: DatabaseService
 
     /// Keychain service 前缀
-    private static let keychainServicePrefix = "com.a1.ai-usage-bar.provider"
+    fileprivate static let keychainServicePrefix = "com.a1.ai-usage-bar.provider"
 
     init(db: DatabaseService) {
         self.db = db
@@ -47,6 +47,31 @@ final class ProviderService {
     // MARK: - Keychain API Key 管理
 
     /// 保存 API Key 到 Keychain
+    static func saveAPIKey(provider: String, key: String) {
+        let service = "\(keychainServicePrefix).\(provider)"
+        let account = "api_key"
+        guard let keyData = key.data(using: .utf8) else { return }
+
+        let deleteQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+        ]
+        SecItemDelete(deleteQuery as CFDictionary)
+
+        let addQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecValueData as String: keyData,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
+        ]
+        let status = SecItemAdd(addQuery as CFDictionary, nil)
+        if status != errSecSuccess {
+            NSLog("[ProviderService] Keychain save error: \(status)")
+        }
+    }
+
     func saveAPIKey(provider: String, key: String) {
         let service = "\(Self.keychainServicePrefix).\(provider)"
         let account = "api_key"
@@ -75,6 +100,27 @@ final class ProviderService {
     }
 
     /// 从 Keychain 读取 API Key
+    static func readAPIKey(provider: String) -> String? {
+        let service = "\(keychainServicePrefix).\(provider)"
+        let account = "api_key"
+
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+        ]
+
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+
+        guard status == errSecSuccess, let data = result as? Data else {
+            return nil
+        }
+        return String(data: data, encoding: .utf8)
+    }
+
     func readAPIKey(provider: String) -> String? {
         let service = "\(Self.keychainServicePrefix).\(provider)"
         let account = "api_key"

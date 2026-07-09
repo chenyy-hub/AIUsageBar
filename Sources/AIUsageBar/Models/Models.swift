@@ -65,24 +65,47 @@ struct TotalStats {
 }
 
 struct CodexQuotaStatus {
-    let sessionUsedPercent: Double?
-    let sessionRemainingPercent: Double?
+    let sessionUsed: Double?
+    let sessionLimit: Double?
+    let sessionPercent: Double?
     let sessionResetTime: Date?
-    let weeklyUsedPercent: Double?
-    let weeklyRemainingPercent: Double?
+    let weeklyUsed: Double?
+    let weeklyLimit: Double?
+    let weeklyPercent: Double?
     let weeklyResetTime: Date?
-    let isAvailable: Bool
+    let status: String
+
+    var isAvailable: Bool { status == "available" }
+
+    var sessionRemainingPercent: Double? {
+        sessionPercent.map { max(0, 100 - $0) }
+    }
+
+    var weeklyRemainingPercent: Double? {
+        weeklyPercent.map { max(0, 100 - $0) }
+    }
 
     static let unavailable = CodexQuotaStatus(
-        sessionUsedPercent: nil,
-        sessionRemainingPercent: nil,
+        sessionUsed: nil,
+        sessionLimit: nil,
+        sessionPercent: nil,
         sessionResetTime: nil,
-        weeklyUsedPercent: nil,
-        weeklyRemainingPercent: nil,
+        weeklyUsed: nil,
+        weeklyLimit: nil,
+        weeklyPercent: nil,
         weeklyResetTime: nil,
-        isAvailable: false
+        status: "unavailable"
     )
 }
+
+struct CodexUsageSnapshot {
+    let sessions: Int
+    let totalTokens: Double
+    let models: [(model: String, sessions: Int, tokens: Double)]
+}
+
+
+
 
 struct DBStatus {
     let recordCount: Int

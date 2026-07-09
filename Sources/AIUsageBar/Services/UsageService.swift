@@ -66,7 +66,6 @@ final class UsageService: ObservableObject {
     @Published var dbStatus = DBStatus(recordCount: 0, hasData: false, path: "", lastUpdate: nil)
     @Published var isLoading: Bool = true
     @Published var errorMessage: String?
-    private(set) var isEditing: Bool = false
 
     // MARK: Demo Mode
     @Published var isDemoMode: Bool = false
@@ -81,7 +80,9 @@ final class UsageService: ObservableObject {
     let providerService: ProviderService?
     let pricingService: PricingService?
     let budgetService: BudgetService?
-    let codexQuotaService: CodexQuotaService
+    let windowManager: WindowManager?
+    let codexUsageScanner: CodexUsageScanner
+    let codexQuotaProvider: CodexQuotaProvider
 
     // MARK: Timers
     private var apiTimer: Timer?          // 30 seconds
@@ -94,7 +95,8 @@ final class UsageService: ObservableObject {
         let database = DatabaseService(demo: demo)
         self.db = database
         self.isDemoMode = demo
-        self.codexQuotaService = CodexQuotaService()
+        self.codexUsageScanner = CodexUsageScanner()
+        self.codexQuotaProvider = CodexQuotaProvider()
 
         if let database {
             _ = database.initializeManagementTables()
@@ -102,11 +104,17 @@ final class UsageService: ObservableObject {
             self.providerService = ProviderService(db: database)
             self.pricingService = PricingService(db: database)
             self.budgetService = BudgetService(db: database)
+            let wm = WindowManager(db: database)
+            self.windowManager = wm
+            wm.onDataChanged = { [weak self] in
+                Task { @MainActor in self?.refresh() }
+            }
         } else {
             self.profileService = nil
             self.providerService = nil
             self.pricingService = nil
             self.budgetService = nil
+            self.windowManager = nil
             errorMessage = "无法连接数据库"
         }
 
@@ -135,29 +143,18 @@ final class UsageService: ObservableObject {
     // MARK: Timers
 
     private func startTimers() {
-        // API refresh: 30 seconds
         apiTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
-                guard let self, self.canAutoRefresh else { return }
+                guard let self else { return }
                 self.refreshAPI()
             }
         }
-
-        // Codex refresh: 120 seconds
         codexTimer = Timer.scheduledTimer(withTimeInterval: 120, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
-                guard let self, self.canAutoRefresh else { return }
+                guard let self else { return }
                 self.refreshCodex()
             }
         }
-    }
-
-    private var canAutoRefresh: Bool {
-        selectedTab == .dashboard && !isEditing
-    }
-
-    func setEditing(_ editing: Bool) {
-        isEditing = editing
     }
 
     // MARK: Refresh — API Cost
@@ -211,17 +208,21 @@ final class UsageService: ObservableObject {
         guard let db, db.isConnected else { return }
 
         Task { @MainActor in
-            async let subStats = db.subscriptionStats()
-            async let subModels = db.subscriptionModelBreakdown()
+            let scanner = self.codexUsageScanner
+            let provider = self.codexQuotaProvider
+            let usage = await Task.detached(priority: .utility) {
+                scanner.scan()
+            }.value
+            let quota = await Task.detached(priority: .utility) {
+                provider.fetchStatus()
+            }.value
 
-            let (ss, sm) = await (subStats, subModels)
-            let qs = self.codexQuotaService.fetchStatus()
 
             self.lastCodexSync = Date()
-            self.subscriptionSessions = ss.sessions
-            self.subscriptionTokens = ss.totalTokens
-            self.subscriptionModels = sm
-            self.codexQuotaStatus = qs
+            self.subscriptionSessions = usage.sessions
+            self.subscriptionTokens = usage.totalTokens
+            self.subscriptionModels = usage.models
+            self.codexQuotaStatus = quota
             self.updateAgentStatuses()
         }
     }
