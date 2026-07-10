@@ -88,24 +88,6 @@ final class WindowManager {
         window.makeKeyAndOrderFront(nil)
     }
 
-    func openBudgetEdit(existing: (any Identifiable & EditableBudget)? = nil) {
-        let windowId = "edit-budget"
-        guard windows[windowId] == nil else { windows[windowId]?.makeKeyAndOrderFront(nil); return }
-
-        let draft = existing.map { BudgetEditDraft(from: $0) } ?? BudgetEditDraft()
-        let view = BudgetEditView(draft: draft) { [weak self] saved in
-            guard let self else { return }
-            self.db.saveBudget(saved.toBudget())
-            self.closeWindow(windowId)
-            self.onDataChanged?()
-        }
-
-        let window = makeWindow(id: windowId, title: existing != nil ? "Edit Budget" : "New Budget",
-                                view: view, size: NSSize(width: 500, height: 350))
-        windows[windowId] = window
-        window.makeKeyAndOrderFront(nil)
-    }
-
     // MARK: - Internal
 
     private func makeWindow<Content: View>(
@@ -188,14 +170,4 @@ protocol EditablePricing {
 
 extension ModelPricing: EditablePricing {}
 
-protocol EditableBudget {
-    var id: Int { get }
-    var name: String { get }
-    var provider: String { get }
-    var initialBalance: Double { get }
-    var currency: String { get }
-    var periodType: String { get }
-    var isActive: Bool { get }
-}
-
-extension Budget: EditableBudget {}
+// EditableBudget removed in v1.3.2 — Budget feature deleted

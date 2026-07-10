@@ -1,6 +1,6 @@
 import SwiftUI
 
-// MARK: - Main Dashboard (v1.5.0)
+// MARK: - Main Dashboard (v2.0 — 产品化)
 
 struct DashboardView: View {
     @ObservedObject var service: UsageService
@@ -20,83 +20,137 @@ struct DashboardView: View {
             }
             .padding(16)
         }
-        .frame(width: 340, height: 520)
+        .frame(width: 340, height: 560)
     }
 
     // MARK: Content
 
     @ViewBuilder
     private var content: some View {
-        // 1. AI Status Hero
-        aiHeroCard
+        // 1. AI Usage Hero
+        aiUsageSection
 
-        // 2. Agent Cards
-        agentCardsSection
+        // 2. 7 天消耗趋势
+        costTrendSection
 
-        // 3. Model Cards
-        modelCardsSection
+        // 3. Active Agents
+        activeAgentsSection
 
-        // 4. System Status
-        systemStatusBar
+        // 4. Model Usage
+        modelUsageSection
+
+        // 5. Budget
+        budgetSection
     }
 
-    // MARK: AI Hero Card
+    // MARK: Section 1 — AI Usage
 
-    private var aiHeroCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
+    private var aiUsageSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            // Header
             HStack {
+                Image(systemName: "sparkle.magnifyingglass")
+                    .font(.caption)
+                    .foregroundColor(.accentColor)
+                Text(L.aiUsage)
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                    .textCase(.uppercase)
+                Spacer()
+                // Agent status badges
+                HStack(spacing: 6) {
+                    ForEach(service.agentStatuses.prefix(3)) { agent in
+                        HStack(spacing: 3) {
+                            Circle()
+                                .fill(agent.status == .connected ? Color.green : Color.gray)
+                                .frame(width: 5, height: 5)
+                            Text(agent.displayName)
+                                .font(.system(size: 8))
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+            }
+
+            // Hero: 今日消费
+            HStack(spacing: 0) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(L.apiHeroTitle)
-                        .font(.caption)
+                    Text(L.todayUsage)
+                        .font(.system(size: 8))
                         .foregroundColor(.secondary)
-                    Text(CostFormatter.format(service.apiTotalStats.totalCost))
-                        .font(.system(size: 34, weight: .bold, design: .rounded))
+                    Text(CostFormatter.format(service.usageData.todayCost))
+                        .font(.system(size: 26, weight: .bold, design: .rounded))
                         .foregroundColor(.primary)
                         .monospacedDigit()
                 }
-                Spacer()
-                VStack(alignment: .trailing, spacing: 4) {
-                    statChip(label: L.requests, value: "\(service.apiTotalStats.totalRequests)")
-                    statChip(label: L.tokens, value: TokenFormatter.format(service.apiTotalStats.totalInput))
-                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            // Agent status badges
-            HStack(spacing: 8) {
-                ForEach(service.agentStatuses.prefix(3)) { agent in
-                    HStack(spacing: 4) {
-                        Circle()
-                            .fill(agent.status == .connected ? Color.green : Color.gray)
-                            .frame(width: 6, height: 6)
-                        Text(agent.displayName)
-                            .font(.system(size: 10))
+            // 累计 | 今日 Token | 请求数
+            HStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(L.cumulative)
+                        .font(.system(size: 8))
+                        .foregroundColor(.secondary)
+                    Text(CostFormatter.formatShort(service.usageData.totalCost))
+                        .font(.system(size: 16, weight: .bold, design: .monospaced))
+                        .foregroundColor(.primary)
+                        .monospacedDigit()
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(L.tokens)
+                        .font(.system(size: 8))
+                        .foregroundColor(.secondary)
+                    Text(TokenFormatter.format(service.usageData.todayTokens))
+                        .font(.system(size: 14, weight: .semibold, design: .monospaced))
+                        .monospacedDigit()
+                }
+                .frame(maxWidth: .infinity, alignment: .trailing)
+
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(L.requests)
+                        .font(.system(size: 8))
+                        .foregroundColor(.secondary)
+                    Text("\(service.usageData.todayRequests)")
+                        .font(.system(size: 14, weight: .semibold, design: .monospaced))
+                        .monospacedDigit()
+                }
+                .frame(maxWidth: .infinity, alignment: .trailing)
+            }
+
+            // 预计可使用（余额 > 0 时显示）
+            if let days = service.estimatedDaysRemaining, service.currentBalance > 0 {
+                Divider()
+                    .opacity(0.5)
+
+                HStack(spacing: 0) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(L.remainingDays)
+                            .font(.system(size: 8))
                             .foregroundColor(.secondary)
+                        HStack(spacing: 2) {
+                            Text("\(days)")
+                                .font(.system(size: 16, weight: .bold, design: .rounded))
+                                .monospacedDigit()
+                            Text(L.day)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        .foregroundColor(.primary)
                     }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(
-                        RoundedRectangle(cornerRadius: 6)
-                            .fill(Color(nsColor: .windowBackgroundColor))
-                    )
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-            }
-
-            // Sync time
-            HStack(spacing: 12) {
-                Label(L.syncTime, systemImage: "clock")
-                    .font(.system(size: 9))
-                    .foregroundColor(.secondary)
-                Text(L.ago(Int(-service.lastApiSync.timeIntervalSinceNow)))
-                    .font(.system(size: 9, design: .monospaced))
-                    .foregroundColor(.secondary)
             }
         }
-        .padding(16)
+        .padding(14)
         .background(
-            RoundedRectangle(cornerRadius: 16)
+            RoundedRectangle(cornerRadius: 14)
                 .fill(
                     LinearGradient(
-                        colors: [Color.accentColor.opacity(0.12), Color.accentColor.opacity(0.04)],
+                        colors: [Color.accentColor.opacity(0.10), Color.accentColor.opacity(0.03)],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     )
@@ -104,111 +158,229 @@ struct DashboardView: View {
         )
     }
 
-    // MARK: Agent Cards
+    // MARK: Section 2 — 7 天消耗趋势
 
-    private var agentCardsSection: some View {
+    private var costTrendSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            SectionHeaderView(title: L.costTrend, icon: "chart.bar.fill")
+
+            if service.costHistory7Days.isEmpty {
+                Text(L.noData)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            } else {
+                HStack(spacing: 8) {
+                    ForEach(Array(service.costHistory7Days.enumerated()), id: \.offset) { index, day in
+                        costTrendBar(day: day, index: index, total: service.costHistory7Days.count)
+                    }
+                }
+                .frame(height: 60)
+            }
+        }
+    }
+
+    private func costTrendBar(day: (date: String, cost: Double, tokens: Int), index: Int, total: Int) -> some View {
+        let maxCost = service.costHistory7Days.map(\.cost).max() ?? 1
+        let isToday = index == total - 1
+        let barHeight = maxCost > 0 ? max(CGFloat(day.cost / maxCost) * 44, 4) : 4
+
+        return VStack(spacing: 3) {
+            Text(CostFormatter.formatShort(day.cost))
+                .font(.system(size: 7))
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+
+            RoundedRectangle(cornerRadius: 3)
+                .fill(isToday ? Color.accentColor : Color.secondary.opacity(0.4))
+                .frame(height: barHeight)
+
+            Text(dayDateLabel(day.date, isToday: isToday))
+                .font(.system(size: 7))
+                .foregroundColor(isToday ? .primary : .secondary)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    // MARK: Section 3 — Active Agents
+
+    private var activeAgentsSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            SectionHeaderView(title: L.agentSection, icon: "cpu.fill")
+            SectionHeaderView(title: L.activeAgents, icon: "cpu.fill")
 
             // Claude Code
             if service.apiTotalStats.totalCost > 0 || service.apiTotalStats.totalRequests > 0 {
-                AgentMiniCard(icon: "sparkles", title: L.claudeCode, provider: L.deepseek) {
-                    apiAgentContent
+                agentCard(
+                    icon: "sparkles",
+                    title: L.claudeCode,
+                    providerColor: .orange,
+                    status: service.agentStatuses.first(where: { $0.client == "claude-code" })?.status ?? .noData
+                ) {
+                    HStack(alignment: .center) {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(L.cost)
+                                .font(.system(size: 8))
+                                .foregroundColor(.secondary)
+                            Text(CostFormatter.format(service.apiTotalStats.totalCost))
+                                .font(.title3)
+                                .fontWeight(.bold)
+                                .monospacedDigit()
+                        }
+
+                        Spacer()
+
+                        VStack(alignment: .trailing, spacing: 1) {
+                            Text(L.tokens)
+                                .font(.system(size: 8))
+                                .foregroundColor(.secondary)
+                            Text(TokenFormatter.format(service.apiTotalStats.totalInput))
+                                .font(.subheadline)
+                                .fontWeight(.medium)
+                                .monospacedDigit()
+                        }
+                    }
+
+                    if let claudeAgent = service.agentStatuses.first(where: { $0.client == "claude-code" }),
+                       let lastActive = claudeAgent.lastSync {
+                        Text("Last used \(RelativeTimeFormatter.format(lastActive))")
+                            .font(.system(size: 8))
+                            .foregroundColor(.secondary)
+                    }
                 }
             }
 
-            // Codex (no cost)
+            // Codex
             if service.subscriptionSessions > 0 {
-                AgentMiniCard(icon: "chevron.left.forwardslash.chevron.right", title: L.codex, provider: "OpenAI") {
-                    codexAgentContent
+                agentCard(
+                    icon: "chevron.left.forwardslash.chevron.right",
+                    title: L.codex,
+                    providerColor: .blue,
+                    status: service.agentStatuses.first(where: { $0.client == "codex" })?.status ?? .noData
+                ) {
+                    HStack(spacing: 12) {
+                        // Session quota
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("5h \(L.quotaLabel)")
+                                .font(.system(size: 8))
+                                .foregroundColor(.secondary)
+                            HStack(spacing: 4) {
+                                Text("\(Int(service.codexQuotaStatus.sessionPercent ?? 0))%")
+                                    .font(.subheadline)
+                                    .fontWeight(.bold)
+                                    .monospacedDigit()
+                                Text(L.used)
+                                    .font(.system(size: 8))
+                                    .foregroundColor(.secondary)
+                            }
+                            if let remaining = service.codexQuotaStatus.sessionRemainingPercent {
+                                Text("\(Int(remaining))% \(L.remaining)")
+                                    .font(.system(size: 8))
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+
+                        // Weekly quota
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(L.weeklyQuota)
+                                .font(.system(size: 8))
+                                .foregroundColor(.secondary)
+                            HStack(spacing: 4) {
+                                Text("\(Int(service.codexQuotaStatus.weeklyPercent ?? 0))%")
+                                    .font(.subheadline)
+                                    .fontWeight(.bold)
+                                    .monospacedDigit()
+                                Text(L.used)
+                                    .font(.system(size: 8))
+                                    .foregroundColor(.secondary)
+                            }
+                            if let reset = service.codexQuotaStatus.sessionResetTime {
+                                Text("\(L.reset) \(reset, style: .relative)")
+                                    .font(.system(size: 8))
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    }
+
+                    Text("Last sync \(RelativeTimeFormatter.format(service.lastCodexSync))")
+                        .font(.system(size: 8))
+                        .foregroundColor(.secondary)
                 }
             }
         }
     }
 
-    private var apiAgentContent: some View {
-        HStack(alignment: .center) {
-            VStack(alignment: .leading, spacing: 1) {
-                Text(L.cost)
-                    .font(.system(size: 8))
-                    .foregroundColor(.secondary)
-                Text(CostFormatter.format(service.apiTotalStats.totalCost))
-                    .font(.title3)
-                    .fontWeight(.bold)
-                    .monospacedDigit()
-            }
+    // MARK: Agent Card Builder
 
-            Spacer()
-
-            VStack(alignment: .trailing, spacing: 1) {
-                Text(L.tokens)
-                    .font(.system(size: 8))
-                    .foregroundColor(.secondary)
-                Text(TokenFormatter.format(service.apiTotalStats.totalInput))
+    private func agentCard(
+        icon: String,
+        title: String,
+        providerColor: Color,
+        status: AgentConnectionStatus,
+        @ViewBuilder content: () -> some View
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Image(systemName: icon)
+                    .font(.caption)
+                    .foregroundColor(.accentColor)
+                Text(title)
                     .font(.subheadline)
-                    .fontWeight(.medium)
-                    .monospacedDigit()
+                    .fontWeight(.semibold)
+                Spacer()
+                // Status badge
+                HStack(spacing: 4) {
+                    Circle()
+                        .fill(statusColor(status))
+                        .frame(width: 6, height: 6)
+                    Text(statusLabel(status))
+                        .font(.system(size: 8))
+                        .foregroundColor(.secondary)
+                }
+                .padding(.horizontal, 5)
+                .padding(.vertical, 2)
+                .background(RoundedRectangle(cornerRadius: 4).fill(providerColor.opacity(0.08)))
             }
+            content()
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color(nsColor: .windowBackgroundColor))
+                .shadow(color: .black.opacity(0.04), radius: 2, x: 0, y: 1)
+        )
+    }
+
+    private func statusColor(_ status: AgentConnectionStatus) -> Color {
+        switch status {
+        case .connected:    return .green
+        case .syncing:      return .orange
+        case .unavailable:  return .red
+        case .noData:       return .gray
         }
     }
 
-    private var codexAgentContent: some View {
-        HStack(spacing: 12) {
-            // Session quota
-            VStack(alignment: .leading, spacing: 2) {
-                Text(L.sessionQuota)
-                    .font(.system(size: 8))
-                    .foregroundColor(.secondary)
-                HStack(spacing: 4) {
-                    Text("\(Int(service.codexQuotaStatus.sessionPercent ?? 0))%")
-                        .font(.subheadline)
-                        .fontWeight(.bold)
-                        .monospacedDigit()
-                    Text(L.used)
-                        .font(.system(size: 8))
-                        .foregroundColor(.secondary)
-                }
-                Text("\(Int(100 - (service.codexQuotaStatus.sessionPercent ?? 0)))% \(L.remaining)")
-                    .font(.system(size: 8))
-                    .foregroundColor(.secondary)
-            }
-
-            // Weekly quota
-            VStack(alignment: .leading, spacing: 2) {
-                Text(L.weeklyQuota)
-                    .font(.system(size: 8))
-                    .foregroundColor(.secondary)
-                HStack(spacing: 4) {
-                    Text("\(Int(service.codexQuotaStatus.weeklyPercent ?? 0))%")
-                        .font(.subheadline)
-                        .fontWeight(.bold)
-                        .monospacedDigit()
-                    Text(L.used)
-                        .font(.system(size: 8))
-                        .foregroundColor(.secondary)
-                }
-                if let reset = service.codexQuotaStatus.sessionResetTime {
-                    Text("\(L.reset) \(reset, style: .relative)")
-                        .font(.system(size: 8))
-                        .foregroundColor(.secondary)
-                }
-            }
+    private func statusLabel(_ status: AgentConnectionStatus) -> String {
+        switch status {
+        case .connected:    return "Connected"
+        case .syncing:      return "Syncing"
+        case .unavailable:  return "Unavailable"
+        case .noData:       return "No Data"
         }
     }
 
-    // MARK: Model Cards
+    // MARK: Section 4 — Model Usage
 
-    private var modelCardsSection: some View {
+    private var modelUsageSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            SectionHeaderView(title: L.modelSection, icon: "cpu.fill")
+            SectionHeaderView(title: L.modelUsage, icon: "cpu.fill")
 
             // API Models
             if !service.apiModels.isEmpty {
-                CardView(title: L.apiModels, icon: "network") {
+                CardView(title: nil) {
                     VStack(alignment: .leading, spacing: 6) {
                         ForEach(Array(service.apiModels.enumerated()), id: \.offset) { _, item in
                             HStack {
-                                Circle().fill(Color.blue).frame(width: 5, height: 5)
+                                Circle().fill(modelColor(item.model)).frame(width: 5, height: 5)
                                 Text(item.model).font(.subheadline).lineLimit(1)
                                 Spacer()
                                 Text(CostFormatter.format(item.cost))
@@ -224,7 +396,7 @@ struct DashboardView: View {
 
             // Subscription Models
             if !service.subscriptionModels.isEmpty {
-                CardView(title: L.subscriptionModels, icon: "creditcard.fill") {
+                CardView(title: nil) {
                     VStack(alignment: .leading, spacing: 6) {
                         ForEach(Array(service.subscriptionModels.enumerated()), id: \.offset) { _, item in
                             HStack {
@@ -244,84 +416,87 @@ struct DashboardView: View {
         }
     }
 
-    // MARK: System Status
+    private func modelColor(_ name: String) -> Color {
+        if name.lowercased().contains("pro") { return .purple }
+        if name.lowercased().contains("flash") { return .blue }
+        return .green
+    }
 
-    private var systemStatusBar: some View {
-        HStack {
-            Circle()
-                .fill(service.dbStatus.hasData ? Color.green : Color.red)
-                .frame(width: 6, height: 6)
-            Text(service.dbStatus.hasData ? L.healthy : L.noData)
-                .font(.caption2)
-                .foregroundColor(.secondary)
-            Text("· \(L.ago(Int(-service.lastApiSync.timeIntervalSinceNow)))")
-                .font(.caption2)
-                .foregroundColor(.secondary)
-            Spacer()
-            Button(L.refresh) { service.refresh() }
-                .buttonStyle(.plain)
-                .font(.caption)
-                .foregroundColor(.accentColor)
+    // MARK: Section 5 — Budget
+
+    private var budgetSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SectionHeaderView(title: L.budget, icon: "creditcard.fill")
+
+            VStack(alignment: .leading, spacing: 10) {
+                // Total Budget | Used | Remaining (3-column)
+                HStack(spacing: 0) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(L.totalBudget)
+                            .font(.system(size: 8))
+                            .foregroundColor(.secondary)
+                        Text(CostFormatter.format(service.initialBalance))
+                            .font(.system(size: 16, weight: .bold, design: .monospaced))
+                            .foregroundColor(.primary)
+                            .monospacedDigit()
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    VStack(alignment: .center, spacing: 2) {
+                        Text(L.usedCost)
+                            .font(.system(size: 8))
+                            .foregroundColor(.secondary)
+                        Text(CostFormatter.format(service.usageData.totalCost))
+                            .font(.system(size: 16, weight: .bold, design: .monospaced))
+                            .foregroundColor(.primary)
+                            .monospacedDigit()
+                    }
+                    .frame(maxWidth: .infinity, alignment: .center)
+
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text(L.remainingBalance)
+                            .font(.system(size: 8))
+                            .foregroundColor(.secondary)
+                        Text(CostFormatter.format(service.currentBalance))
+                            .font(.system(size: 16, weight: .bold, design: .monospaced))
+                            .foregroundColor(balanceColor)
+                            .monospacedDigit()
+                    }
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                }
+
+                // Progress bar
+                if service.initialBalance > 0 {
+                    let ratio = min(service.usageData.totalCost / service.initialBalance, 1.5)
+                    ProgressBarView(
+                        value: min(ratio, 1.0),
+                        color: ratio > 1 ? .red : (ratio > 0.8 ? .orange : .green),
+                        height: 6
+                    )
+                }
+            }
+            .padding(14)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color(nsColor: .windowBackgroundColor))
+                    .shadow(color: .black.opacity(0.04), radius: 2, x: 0, y: 1)
+            )
         }
-        .padding(.horizontal, 4)
+    }
+
+    private var balanceColor: Color {
+        let balance = service.currentBalance
+        if balance < 0 { return .red }
+        if balance < 50 { return .orange }
+        return .primary
     }
 
     // MARK: Helpers
 
-    private func statChip(label: String, value: String) -> some View {
-        HStack(spacing: 4) {
-            Text(label)
-                .font(.system(size: 8))
-                .foregroundColor(.secondary)
-            Text(value)
-                .font(.system(size: 10, weight: .medium, design: .monospaced))
-                .foregroundColor(.primary)
-        }
-    }
-}
-
-// MARK: - Agent Mini Card
-
-struct AgentMiniCard<Content: View>: View {
-    let icon: String
-    let title: String
-    let provider: String
-    let content: Content
-
-    init(icon: String, title: String, provider: String, @ViewBuilder content: () -> Content) {
-        self.icon = icon
-        self.title = title
-        self.provider = provider
-        self.content = content()
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Image(systemName: icon)
-                    .font(.caption)
-                    .foregroundColor(.accentColor)
-                Text(title)
-                    .font(.subheadline)
-                    .fontWeight(.semibold)
-                Spacer()
-                HStack(spacing: 3) {
-                    Circle().fill(Color.blue).frame(width: 5, height: 5)
-                    Text(provider)
-                        .font(.system(size: 8))
-                        .foregroundColor(.secondary)
-                }
-                .padding(.horizontal, 5)
-                .padding(.vertical, 2)
-                .background(RoundedRectangle(cornerRadius: 4).fill(Color.blue.opacity(0.08)))
-            }
-            content
-        }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color(nsColor: .windowBackgroundColor))
-                .shadow(color: .black.opacity(0.04), radius: 2, x: 0, y: 1)
-        )
+    private func dayDateLabel(_ dateString: String, isToday: Bool) -> String {
+        if isToday { return "今天" }
+        let parts = dateString.split(separator: "-")
+        guard parts.count >= 3 else { return dateString }
+        return "\(parts[1])/\(parts[2])"
     }
 }

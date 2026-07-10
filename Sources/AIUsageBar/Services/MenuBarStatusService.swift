@@ -1,47 +1,19 @@
 import Foundation
 
-// MARK: - MenuBar State
+// Deprecated:
+// replaced by MenuBarViewModel
+// MARK: - MenuBar Status Service (legacy compatibility)
 
-/// 菜单栏显示状态枚举（优先级从高到低）
-enum MenuBarState: String, Codable, CaseIterable {
-    case codexWarning   // Codex quota >= 75%
-    case apiCost        // API cost > 0 today
-    case normal         // AI ✓
-    case syncing        // 正在同步
-    case offline        // 无数据
-}
-
-// MARK: - MenuBar Status
-
-/// 菜单栏当前状态
-struct MenuBarStatus {
-    let state: MenuBarState
-    let icon: String
-    let text: String
-    let priority: Int
-
-    var fullText: String {
-        switch state {
-        case .codexWarning: return "\(icon) AI \(text)"
-        case .apiCost:      return "AI \(text)"
-        case .normal:       return "AI \(text)"
-        case .syncing:      return "AI \(text)"
-        case .offline:      return "AI \(text)"
-        }
-    }
-}
-
-// MARK: - MenuBar Status Service
-
-/// 负责根据 UsageService、DatabaseService、CodexQuotaProvider 计算菜单栏状态。
+/// 菜单栏状态服务
 ///
-/// 状态优先级：
-///   1. Codex quota >= 90% → 🔥 AI 95%
-///   2. Codex quota >= 75% → ⚠ AI 80%
-///   3. API cost > 0       → AI ¥12.5
-///   4. 有数据              → AI ✓
-///   5. 无数据              → AI !
+/// 根据最近活跃 Agent 自动切换两行 MenuBar 标签：
+///   ✨ Claude
+///   今日 ¥0.24          — Claude Code 活跃
+///   ⌘ Codex
+///   5h 80%              — Codex 活跃（session percent）
+///   AI ✓                — 无活跃 Agent
 ///
+@available(*, deprecated, message: "Use MenuBarViewModel instead.")
 @MainActor
 final class MenuBarStatusService {
     private weak var usageService: UsageService?
@@ -50,62 +22,47 @@ final class MenuBarStatusService {
         self.usageService = usageService
     }
 
-    /// 计算当前菜单栏状态（基于现有 timer 数据，不额外查询 DB）
-    func computeStatus() -> MenuBarStatus {
+    /// 计算当前菜单栏标签（两行格式）
+    func computeLabel() -> String {
         guard let service = usageService else {
-            return MenuBarStatus(state: .offline, icon: "!", text: "!", priority: 0)
+            print("[MenuBar] usageService=nil")
+            return "AI !"
         }
 
-        let dbOk = service.dbStatus.hasData
-        let todayCost = service.apiTotalStats.totalCost
-        let codexPct = service.codexQuotaStatus.sessionPercent ?? service.codexQuotaStatus.weeklyPercent ?? -1
+        let activeInfo = service.activeAgentInfo
 
-        // 1. Codex quota warning (最高优先级)
-        if codexPct >= 90 {
-            return MenuBarStatus(
-                state: .codexWarning,
-                icon: "🔥",
-                text: "\(Int(codexPct))%",
-                priority: 5
-            )
+        switch activeInfo.agent {
+        case .claudeCode:
+            let cost = service.usageData.todayCost
+            return "✨ Claude\n今日 \(CostFormatter.formatShort(cost))"
+
+        case .deepseek:
+            let cost = service.usageData.todayCost
+            return "🤖 DeepSeek\n今日 \(CostFormatter.formatShort(cost))"
+
+        case .codex:
+            if service.codexQuotaStatus.isAvailable {
+                let pct = Int(service.codexQuotaStatus.sessionPercent ?? 0)
+                return "⌘ Codex\n5h \(pct)%"
+            }
+            return "⌘ Codex\nNo quota"
+
+        case .none:
+            break
         }
 
-        if codexPct >= 75 {
-            return MenuBarStatus(
-                state: .codexWarning,
-                icon: "⚠",
-                text: "\(Int(codexPct))%",
-                priority: 4
-            )
-        }
-
-        // 2. API cost
+        // 降级：今日有 API 成本
+        let todayCost = service.usageData.todayCost
         if todayCost > 0 {
-            return MenuBarStatus(
-                state: .apiCost,
-                icon: "",
-                text: CostFormatter.formatShort(todayCost),
-                priority: 3
-            )
+            return "AI \(CostFormatter.formatShort(todayCost))"
         }
 
-        // 3. Normal (有数据)
-        if dbOk {
-            return MenuBarStatus(
-                state: .normal,
-                icon: "",
-                text: "✓",
-                priority: 2
-            )
+        // 正常状态
+        if service.dbStatus.hasData {
+            return L.menuBarNormal
         }
 
-        // 4. Offline
-        return MenuBarStatus(
-            state: .offline,
-            icon: "",
-            text: "!",
-            priority: 0
-        )
+        return "AI !"
     }
 
     /// 获取快速状态（Dropdown 顶部显示）
@@ -114,26 +71,22 @@ final class MenuBarStatusService {
 
         var items: [(String, String)] = []
 
-        // API Cost
-        let cost = CostFormatter.format(service.apiTotalStats.totalCost)
-        items.append(("API Cost", cost))
+        // 活跃 Agent
+        let agentName = service.activeAgentInfo.agent.displayName
+        items.append(("活跃 Agent", agentName))
 
-        items.append(("Requests", "\(service.apiTotalStats.totalRequests)"))
+        // 今日成本
+        items.append(("今日成本", CostFormatter.formatShort(service.costSummary.todayCost)))
 
-        // Codex
+        // Codex 额度
         let codexPct = service.codexQuotaStatus.sessionPercent ?? service.codexQuotaStatus.weeklyPercent ?? -1
-        items.append(("Codex", codexPct >= 0 ? "\(Int(codexPct))%" : "N/A"))
+        items.append(("Codex 额度", codexPct >= 0 ? "\(Int(codexPct))%" : "N/A"))
 
-        // Last Sync
-        let apiAgo = timeAgo(service.lastApiSync)
-        items.append(("Last Sync", apiAgo))
+        // 最后活跃：来自 UsageRepository 汇总后的统一时间源
+        if let lastActive = service.latestActivityDate ?? service.activeAgentInfo.lastActive {
+            items.append(("最后活跃", RelativeTimeFormatter.format(lastActive)))
+        }
 
         return items
-    }
-
-    private func timeAgo(_ date: Date) -> String {
-        let interval = Int(-date.timeIntervalSinceNow)
-        if interval < 60 { return "\(interval)s ago" }
-        return "\(interval / 60)min ago"
     }
 }

@@ -15,7 +15,10 @@ DerivedData/
 
 # Database (user-specific, local only)
 *.db
+*.db-wal
+*.db-shm
 *.sqlite
+*.sqlite3
 *.sqlite-wal
 *.sqlite-shm
 runtime/
@@ -43,3 +46,15 @@ xcuserdata/
 # User data (agent logs, never commit)
 .claude/
 .codex/
+
+# Local credentials and user configuration
+*.token
+*.tokens
+*.secret
+*.secrets
+config.local.*
+
+# Local source backups
+backups/
+*.backup.*
+*.bak

@@ -1,20 +1,16 @@
 import SwiftUI
 
-// MARK: - Menu Bar Content
-
 struct MenuBarContentView: View {
+    @ObservedObject var viewModel: MenuBarViewModel
     @ObservedObject var service: UsageService
     @State private var showSettings = false
     @State private var showDataHealth = false
 
     var body: some View {
         VStack(spacing: 0) {
-            // Quick Status Bar (TASK 4)
-            quickStatusBar
-
+            providerStatusSection
             Divider()
 
-            // Tab bar
             Picker("", selection: $service.selectedTab) {
                 ForEach(AppTab.allCases) { tab in
                     Text(tab.title).tag(tab)
@@ -24,137 +20,125 @@ struct MenuBarContentView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
 
-            // Tab content
             tabContent
 
-            // Bottom toolbar
             Divider()
             bottomBar
         }
         .background(Color(nsColor: .windowBackgroundColor))
     }
 
-    // MARK: Quick Status Bar
-
-    private var quickStatusBar: some View {
-        HStack(spacing: 12) {
-            // Brand
-            HStack(spacing: 4) {
-                Circle()
-                    .fill(Color.accentColor)
-                    .frame(width: 6, height: 6)
-                Text("AIUsageBar")
-                    .font(.system(size: 9, weight: .semibold))
-            }
-
-            Spacer()
-
-            // API 成本
-            VStack(alignment: .trailing, spacing: 0) {
-                Text(L.cost)
-                    .font(.system(size: 7))
+    private var providerStatusSection: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                Image(systemName: "sparkle.magnifyingglass")
+                    .font(.caption)
+                    .foregroundColor(providerColor)
+                Text(viewModel.providerName)
+                    .font(.system(size: 11, weight: .semibold))
                     .foregroundColor(.secondary)
-                Text(CostFormatter.formatShort(service.apiTotalStats.totalCost))
-                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                Spacer()
             }
-            .frame(width: 60)
+            .padding(.horizontal, 14)
+            .padding(.top, 10)
+            .padding(.bottom, 6)
 
-            // Codex 额度
-            VStack(alignment: .trailing, spacing: 0) {
-                Text("Codex")
-                    .font(.system(size: 7))
+            if let sectionTitle = viewModel.sectionTitle {
+                Text(sectionTitle)
+                    .font(.system(size: 8, weight: .semibold))
                     .foregroundColor(.secondary)
-                Text({
-                    let pct = service.codexQuotaStatus.sessionPercent ?? service.codexQuotaStatus.weeklyPercent ?? -1
-                    return pct >= 0 ? "\(Int(pct))%" : "N/A"
-                }())
-                    .font(.system(size: 9, weight: .medium, design: .monospaced))
-                    .foregroundColor({
-                        let pct = service.codexQuotaStatus.sessionPercent ?? service.codexQuotaStatus.weeklyPercent ?? -1
-                        return pct >= 80 ? .red : .primary
-                    }())
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 2)
             }
-            .frame(width: 50)
 
-            // 同步时间
-            VStack(alignment: .trailing, spacing: 0) {
-                Text(L.syncTime)
-                    .font(.system(size: 7))
-                    .foregroundColor(.secondary)
-                Text(L.ago(Int(-service.lastApiSync.timeIntervalSinceNow)))
-                    .font(.system(size: 9, design: .monospaced))
+            ForEach(viewModel.detailRows) { row in
+                StatRow(label: row.label, value: row.value, color: color(for: row.color))
             }
-            .frame(width: 55)
+            .padding(.horizontal, 14)
+
+            scannerSection
+                .padding(.top, viewModel.detailRows.isEmpty ? 0 : 6)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 6)
+        .padding(.bottom, 6)
         .background(Color(nsColor: .windowBackgroundColor))
     }
 
-    // MARK: Tab Content
+    private var scannerSection: some View {
+        HStack(spacing: 0) {
+            HStack(spacing: 4) {
+                Circle()
+                    .fill(service.scannerStatus.running ? Color.green : Color.red)
+                    .frame(width: 5, height: 5)
+                Text(service.scannerStatus.running ? "Scanner: Running" : "Scanner: Offline")
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundColor(service.scannerStatus.running ? .primary : .red)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            VStack(alignment: .trailing, spacing: 1) {
+                Text("Last Sync")
+                    .font(.system(size: 7))
+                    .foregroundColor(.secondary)
+                Text(scannerStatusText)
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundColor(scannerError ? .red : .secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 6)
+    }
+
+    private var scannerStatusText: String {
+        if let error = service.scannerStatus.lastError, !error.isEmpty, !service.scannerStatus.running {
+            return "Error"
+        }
+        if let date = service.scannerStatus.lastScanDate {
+            return RelativeTimeFormatter.format(date)
+        }
+        return "N/A"
+    }
+
+    private var scannerError: Bool {
+        guard let error = service.scannerStatus.lastError else { return false }
+        return !error.isEmpty && !service.scannerStatus.running
+    }
 
     @ViewBuilder
     private var tabContent: some View {
         switch service.selectedTab {
-        case .dashboard:
-            DashboardView(service: service)
-        case .profiles:
-            ProfileManagerView(service: service)
-        case .providers:
-            ProviderManagerView(service: service)
-        case .pricing:
-            PricingManagerView(service: service)
-        case .budgets:
-            BudgetManagerView(service: service)
+        case .dashboard: DashboardView(service: service)
+        case .profiles: ProfileManagerView(service: service)
+        case .providers: ProviderManagerView(service: service)
+        case .pricing: PricingManagerView(service: service)
         }
     }
 
-    // MARK: Bottom Bar
-
     private var bottomBar: some View {
         HStack(spacing: 0) {
-            Button {
-                showDataHealth.toggle()
-            } label: {
-                Label("数据", systemImage: "heart.text.square")
-                    .font(.caption)
+            Button { showDataHealth.toggle() } label: {
+                Label(L.dataHealth, systemImage: "heart.text.square").font(.caption)
             }
             .buttonStyle(.plain)
-            .popover(isPresented: $showDataHealth) {
-                DataHealthView(service: service)
-            }
+            .popover(isPresented: $showDataHealth) { DataHealthView(service: service) }
 
             Spacer()
-
             HStack(spacing: 4) {
-                Circle()
-                    .fill(service.dbStatus.hasData ? Color.green : Color.red)
-                    .frame(width: 5, height: 5)
-                Text("DB")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
+                Circle().fill(service.dbStatus.hasData ? Color.green : Color.red).frame(width: 5, height: 5)
+                Text("DB").font(.caption2).foregroundColor(.secondary)
             }
-
             Spacer()
 
-            Button {
-                showSettings.toggle()
-            } label: {
-                Label("设置", systemImage: "gearshape")
-                    .font(.caption)
+            Button { showSettings.toggle() } label: {
+                Label(L.settings, systemImage: "gearshape").font(.caption)
             }
             .buttonStyle(.plain)
-            .popover(isPresented: $showSettings) {
-                SettingsView(service: service)
-            }
+            .popover(isPresented: $showSettings) { SettingsView(service: service) }
 
             Spacer()
-
-            Button {
-                NSApplication.shared.terminate(nil)
-            } label: {
-                Label("退出", systemImage: "xmark.circle")
-                    .font(.caption)
+            Button { NSApplication.shared.terminate(nil) } label: {
+                Label(L.quit, systemImage: "xmark.circle").font(.caption)
             }
             .buttonStyle(.plain)
         }
@@ -162,11 +146,13 @@ struct MenuBarContentView: View {
         .padding(.vertical, 8)
     }
 
-    // MARK: Helpers
+    private var providerColor: Color { color(for: viewModel.statusColor) }
 
-    private func timeAgo(_ date: Date) -> String {
-        let interval = Int(-date.timeIntervalSinceNow)
-        if interval < 60 { return "\(interval)s ago" }
-        return "\(interval / 60)min ago"
+    private func color(for status: MenuBarStatusColor) -> Color {
+        switch status {
+        case .primary: return .primary
+        case .warning: return .orange
+        case .critical, .unavailable: return .red
+        }
     }
 }

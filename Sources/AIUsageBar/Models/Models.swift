@@ -188,22 +188,53 @@ struct ModelPricing: Identifiable, Codable {
     }
 }
 
-/// Budget — 预算配置
-struct Budget: Identifiable, Codable {
-    let id: Int
-    var name: String
-    var provider: String                   // "" = 全局
-    var initialBalance: Double
-    var currency: String
-    var periodType: String                 // "total" | "daily" | "weekly" | "monthly"
-    var startDate: String
-    var isActive: Bool
-    var createdAt: String
+// MARK: - Active Agent Detection (v2.0)
 
-    static func empty() -> Budget {
-        Budget(id: 0, name: "", provider: "", initialBalance: 0,
-               currency: "CNY", periodType: "total",
-               startDate: "", isActive: true, createdAt: "")
+/// 活跃 AI Agent 枚举
+enum ActiveAgent: String, Codable, CaseIterable {
+    case none
+    case codex
+    case claudeCode = "claude-code"
+    case deepseek
+
+    var displayName: String {
+        switch self {
+        case .none:       return "无"
+        case .codex:      return "Codex"
+        case .claudeCode: return "Claude Code"
+        case .deepseek:   return "DeepSeek"
+        }
+    }
+
+    /// MenuBar 显示图标
+    var menuIcon: String {
+        switch self {
+        case .none:       return "✓"
+        case .codex:      return "⌘"
+        case .claudeCode: return "✨"
+        case .deepseek:   return "🤖"
+        }
+    }
+}
+
+/// 活跃 Agent 完整信息
+struct ActiveAgentInfo {
+    let agent: ActiveAgent
+    let detail: String
+    let lastActive: Date?
+
+    /// MenuBar 标签（v1.4 — 单行动态 Agent 状态）
+    var menuLabel: String {
+        switch agent {
+        case .none:
+            return "AI ✓"
+        case .codex:
+            return "⌘ Codex \(detail)"
+        case .claudeCode:
+            return "✨ Claude \(detail)"
+        case .deepseek:
+            return "🤖 DeepSeek \(detail)"
+        }
     }
 }
 
@@ -335,20 +366,36 @@ struct ConnectionTestResult {
     let message: String
 }
 
+// MARK: - API Usage Data (v1.3.2)
+
+/// API 使用数据（替换 BudgetForecast）
+struct UsageData {
+    let todayCost: Double
+    let todayTokens: Int
+    let todayRequests: Int
+    let monthCost: Double
+    let totalCost: Double
+    let dailyAverage: Double
+}
+
 // MARK: - Formatters
 
 enum CostFormatter {
     static func format(_ cost: Double) -> String {
-        if cost >= 10000 { return String(format: "¥%.1fK", cost / 1000) }
-        if cost >= 1     { return String(format: "¥%.2f", cost) }
-        if cost >= 0.01  { return String(format: "¥%.4f", cost) }
-        return String(format: "¥%.6f", cost)
+        String(format: "¥%.2f", displayAmount(cost))
     }
 
     static func formatShort(_ cost: Double) -> String {
-        if cost >= 10000 { return String(format: "¥%.1fK", cost / 1000) }
-        if cost >= 1     { return String(format: "¥%.2f", cost) }
-        return String(format: "¥%.2f", cost)
+        String(format: "¥%.2f", displayAmount(cost))
+    }
+
+    private static func displayAmount(_ cost: Double) -> Double {
+        guard cost.isFinite else { return 0 }
+        if cost == 0 { return 0 }
+        if abs(cost) < 0.01 {
+            return cost > 0 ? 0.01 : -0.01
+        }
+        return cost
     }
 }
 

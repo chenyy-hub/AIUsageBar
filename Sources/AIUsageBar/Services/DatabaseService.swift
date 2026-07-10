@@ -198,7 +198,7 @@ final class DatabaseService {
     // MARK: - Management Table Setup
     // ------------------------------------------------------------------
 
-    /// V5 migration: api_usage_records + quota_usage_records
+    /// V5 migration: api_usage_records + quota_usage_records + budget_transactions
     static let v5SchemaSQL = """
     CREATE TABLE IF NOT EXISTS api_usage_records (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -239,6 +239,13 @@ final class DatabaseService {
         is_estimated INTEGER DEFAULT 0,
         tokens_used REAL DEFAULT 0,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS budget_transactions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        type TEXT NOT NULL,
+        amount REAL NOT NULL,
+        timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
+        note TEXT DEFAULT ''
     );
     """
 
@@ -292,6 +299,13 @@ final class DatabaseService {
         period_type     TEXT DEFAULT 'total',
         start_date      TEXT DEFAULT CURRENT_DATE,
         is_active       INTEGER DEFAULT 1,
+        created_at      TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS api_budget_config (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        initial_balance REAL NOT NULL DEFAULT 0,
+        warning_balance REAL NOT NULL DEFAULT 50,
         created_at      TEXT DEFAULT CURRENT_TIMESTAMP
     );
     """
@@ -502,97 +516,97 @@ final class DatabaseService {
     }
 
     // ================================================================
-    // MARK: - Budgets CRUD
+    // MARK: - API Cost History (v3.0 — 7 天趋势，时区安全)
     // ================================================================
 
-    func loadBudgets() -> [Budget] {
-        let rows = mgmtQuery("SELECT * FROM budgets ORDER BY is_active DESC, id ASC")
-        return rows.map { rowToBudget($0) }
-    }
+    /// 最近 N 天的 API 每日成本（从 api_usage_records）
+    func apiDailyCostHistory(days: Int = 7) -> [(date: String, cost: Double, tokens: Int)] {
+        var results: [(String, Double, Int)] = []
+        let localDates = Self.lastNLocalDates(days)
 
-    func getBudget(id: Int) -> Budget? {
-        let rows = mgmtQuery("SELECT * FROM budgets WHERE id = ?", args: [id])
-        return rows.first.map { rowToBudget($0) }
-    }
-
-    func saveBudget(_ b: Budget) -> Int {
-        if b.id > 0 {
-            mgmtUpdate("""
-                UPDATE budgets SET name=?, provider=?, initial_balance=?, currency=?,
-                    period_type=?, start_date=?, is_active=?
-                WHERE id=?
-            """, args: [b.name, b.provider, b.initialBalance, b.currency, b.periodType, b.startDate, b.isActive ? 1 : 0, b.id])
-            return b.id
-        } else {
-            mgmtUpdate("""
-                INSERT INTO budgets (name, provider, initial_balance, currency, period_type, start_date, is_active)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, args: [b.name, b.provider, b.initialBalance, b.currency, b.periodType, b.startDate, b.isActive ? 1 : 0])
-            return lastInsertId()
-        }
-    }
-
-    func deleteBudget(id: Int) {
-        mgmtUpdate("DELETE FROM budgets WHERE id = ?", args: [id])
-    }
-
-    /// Query spent amount for a budget (provider-scoped or global)
-    func querySpent(provider: String, sinceDate: String) -> Double {
-        var sql: String
-        var args: [Any]
-
-        if provider.isEmpty {
-            sql = "SELECT COALESCE(SUM(total_cost), 0) AS spent FROM usage_records WHERE timestamp >= ? || 'T00:00:00'"
-            args = [sinceDate]
-        } else {
-            sql = "SELECT COALESCE(SUM(total_cost), 0) AS spent FROM usage_records WHERE provider = ? AND timestamp >= ? || 'T00:00:00'"
-            args = [provider, sinceDate]
-        }
-
-        // Run on the readonly connection
-        let rows = query(sql, args: args)
-        return (rows.first?["spent"] as? Double) ?? 0
-    }
-
-    /// Daily spend for the last N days (budget trend)
-    func queryDailySpending(provider: String, days: Int = 30) -> [(String, Double)] {
-        let calendar = Calendar.current
-        var results: [(String, Double)] = []
-        let today = Date()
-
-        for offset in (0..<days).reversed() {
-            guard let date = calendar.date(byAdding: .day, value: -offset, to: today) else { continue }
-            let ds = dateToDateString(date)
-
-            var sql: String
-            var args: [Any]
-            if provider.isEmpty {
-                sql = "SELECT COALESCE(SUM(total_cost), 0) AS s FROM usage_records WHERE substr(timestamp,1,10) = ?"
-                args = [ds]
-            } else {
-                sql = "SELECT COALESCE(SUM(total_cost), 0) AS s FROM usage_records WHERE provider = ? AND substr(timestamp,1,10) = ?"
-                args = [provider, ds]
+        for date in localDates {
+            let range = Self.localDayRange(date)
+            let sql = """
+                SELECT COALESCE(SUM(total_cost), 0) AS cost,
+                       COALESCE(SUM(input_tokens + output_tokens), 0) AS tokens
+                FROM api_usage_records
+                WHERE timestamp >= ? AND timestamp < ?
+            """
+            let rows = query(sql, args: [range.startTimestamp, range.endTimestamp])
+            if let row = rows.first {
+                let ds = dateToDateString(date)
+                results.append((
+                    ds,
+                    row["cost"] as? Double ?? 0,
+                    row["tokens"] as? Int ?? 0
+                ))
             }
-
-            let rows = query(sql, args: args)
-            let spent = (rows.first?["s"] as? Double) ?? 0
-            results.append((ds, spent))
         }
         return results
     }
 
-    private func rowToBudget(_ r: [String: Any]) -> Budget {
-        Budget(
-            id: r["id"] as? Int ?? 0,
-            name: r["name"] as? String ?? "",
-            provider: r["provider"] as? String ?? "",
-            initialBalance: r["initial_balance"] as? Double ?? 0,
-            currency: r["currency"] as? String ?? "CNY",
-            periodType: r["period_type"] as? String ?? "total",
-            startDate: r["start_date"] as? String ?? "",
-            isActive: (r["is_active"] as? Int ?? 0) != 0,
-            createdAt: r["created_at"] as? String ?? ""
+    // MARK: Swift 本地时区范围查询 (v3.3)
+
+    /// 今日 API 统计（Swift 当前时区生成日期边界，数据库 timestamp 保持原格式）
+    func apiTodayStatsSQL() -> (cost: Double, inputTokens: Int, outputTokens: Int, requests: Int) {
+        let range = Self.localDayRange(Date())
+        let rows = query("""
+            SELECT
+                COALESCE(SUM(total_cost), 0) AS cost,
+                COALESCE(SUM(input_tokens), 0) AS input_tokens,
+                COALESCE(SUM(output_tokens), 0) AS output_tokens,
+                COUNT(*) AS requests
+            FROM api_usage_records
+            WHERE timestamp >= ? AND timestamp < ?
+        """, args: [range.startTimestamp, range.endTimestamp])
+        guard let row = rows.first else {
+            return (0, 0, 0, 0)
+        }
+        return (
+            cost: row["cost"] as? Double ?? 0,
+            inputTokens: row["input_tokens"] as? Int ?? 0,
+            outputTokens: row["output_tokens"] as? Int ?? 0,
+            requests: row["requests"] as? Int ?? 0
         )
+    }
+
+    /// 最近 N 天 API 每日成本（Swift 当前时区逐日范围查询）
+    func apiDailyCostHistorySQL(days: Int = 7) -> [(date: String, cost: Double, tokens: Int)] {
+        Self.lastNLocalDates(days).map { date in
+            let range = Self.localDayRange(date)
+            let rows = query("""
+                SELECT
+                    COALESCE(SUM(total_cost), 0) AS cost,
+                    COALESCE(SUM(input_tokens + output_tokens), 0) AS tokens
+                FROM api_usage_records
+                WHERE timestamp >= ? AND timestamp < ?
+            """, args: [range.startTimestamp, range.endTimestamp])
+            let row = rows.first ?? [:]
+            return (
+                dateToDateString(date),
+                row["cost"] as? Double ?? 0,
+                row["tokens"] as? Int ?? 0
+            )
+        }
+    }
+
+    /// 各 Agent 最后活跃时间（从 api_usage_records）
+    func apiLatestActivityByClient() -> [(client: String, lastActive: String, provider: String)] {
+        let rows = query("""
+            SELECT
+                client,
+                MAX(timestamp) AS last_active,
+                provider
+            FROM api_usage_records
+            GROUP BY client
+        """)
+        return rows.map {
+            (
+                $0["client"] as? String ?? "",
+                $0["last_active"] as? String ?? "",
+                $0["provider"] as? String ?? ""
+            )
+        }
     }
 
     // ================================================================
@@ -600,16 +614,111 @@ final class DatabaseService {
     // MARK: - V5 Agent Usage Queries
     // ================================================================
 
-    /// API-only today summary (from api_usage_records)
+    // MARK: Cost Summary (v1.6.0 — 时间语义分层)
+
+    struct CostSummary {
+        let todayCost: Double
+        let monthCost: Double
+        let totalCost: Double
+        let todayRequests: Int
+    }
+
+    /// 分层成本统计：今日 / 本月 / 累计（v3.0 — 本地时区 → UTC 查询）
+    func apiCostSummary() -> CostSummary {
+        let todayRange = Self.localDayRange(Date())
+        let monthRange = Self.localMonthRange(Date())
+
+        let rows = query("""
+            SELECT
+                COALESCE(SUM(CASE WHEN timestamp >= ? AND timestamp < ? THEN total_cost ELSE 0 END), 0) AS today_cost,
+                COALESCE(SUM(CASE WHEN timestamp >= ? AND timestamp < ? THEN total_cost ELSE 0 END), 0) AS month_cost,
+                COALESCE(SUM(total_cost), 0) AS total_cost,
+                COALESCE(SUM(CASE WHEN timestamp >= ? AND timestamp < ? THEN 1 ELSE 0 END), 0) AS today_requests
+            FROM api_usage_records
+        """, args: [
+            todayRange.startTimestamp, todayRange.endTimestamp,
+            monthRange.startTimestamp, monthRange.endTimestamp,
+            todayRange.startTimestamp, todayRange.endTimestamp,
+        ])
+
+        guard let row = rows.first else {
+            return CostSummary(todayCost: 0, monthCost: 0, totalCost: 0, todayRequests: 0)
+        }
+        return CostSummary(
+            todayCost: row["today_cost"] as? Double ?? 0,
+            monthCost: row["month_cost"] as? Double ?? 0,
+            totalCost: row["total_cost"] as? Double ?? 0,
+            todayRequests: row["today_requests"] as? Int ?? 0
+        )
+    }
+    /// 时区安全的成本统计：截至当前时刻（非全天/整月）
+    ///
+    /// - today:  本地 00:00 ~ 当前时刻
+    /// - month:  本月 1 日 00:00 ~ 当前时刻
+    /// - total:  全部
+    func apiCostSummaryToNow(now: Date = Date()) -> (todayCost: Double, todayTokens: Int, todayRequests: Int, monthCost: Double, totalCost: Double) {
+        let cal = Calendar.current
+        let startOfDay = cal.startOfDay(for: now)
+        guard let startOfMonth = cal.date(from: cal.dateComponents([.year, .month], from: now)) else {
+            return (0, 0, 0, 0, 0)
+        }
+
+        let startToday = Self.databaseTimestampString(startOfDay)
+        let startMonth = Self.databaseTimestampString(startOfMonth)
+        let nowTimestamp = Self.databaseTimestampString(now)
+
+        let rows = query("""
+            SELECT
+                COALESCE(SUM(CASE WHEN timestamp >= ? AND timestamp < ? THEN total_cost ELSE 0 END), 0) AS today_cost,
+                COALESCE(SUM(CASE WHEN timestamp >= ? AND timestamp < ? THEN total_cost ELSE 0 END), 0) AS month_cost,
+                COALESCE(SUM(total_cost), 0) AS total_cost,
+                COALESCE(SUM(CASE WHEN timestamp >= ? AND timestamp < ? THEN 1 ELSE 0 END), 0) AS today_requests,
+                COALESCE(SUM(CASE WHEN timestamp >= ? AND timestamp < ? THEN input_tokens + output_tokens ELSE 0 END), 0) AS today_tokens
+            FROM api_usage_records
+        """, args: [
+            startToday, nowTimestamp,
+            startMonth, nowTimestamp,
+            startToday, nowTimestamp,
+            startToday, nowTimestamp,
+        ])
+
+        guard let row = rows.first else {
+            return (0, 0, 0, 0, 0)
+        }
+        return (
+            todayCost: row["today_cost"] as? Double ?? 0,
+            todayTokens: row["today_tokens"] as? Int ?? 0,
+            todayRequests: row["today_requests"] as? Int ?? 0,
+            monthCost: row["month_cost"] as? Double ?? 0,
+            totalCost: row["total_cost"] as? Double ?? 0
+        )
+    }
+
+    /// 本周 API 成本（周一 00:00 至当前时刻）
+    func apiWeekCostToNow(now: Date = Date()) -> Double {
+        let cal = Calendar.current
+        guard let weekStart = cal.date(from: cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: now)) else {
+            return 0
+        }
+        let rows = query("""
+            SELECT COALESCE(SUM(total_cost), 0) AS cost
+            FROM api_usage_records
+            WHERE timestamp >= ? AND timestamp < ?
+        """, args: [Self.databaseTimestampString(weekStart), Self.databaseTimestampString(now)])
+        return (rows.first?["cost"] as? Double) ?? 0
+    }
+
+
+    /// API-only today summary (v3.0 — 时区安全 UTC 范围查询)
     func apiTodaySummary() -> TodaySummary {
-        let dateStr = todayDateString()
+        let range = Self.localDayRange(Date())
         let rows = query("""
             SELECT COALESCE(SUM(total_cost), 0) AS total_cost,
                    COUNT(*) AS request_count,
                    COALESCE(SUM(input_tokens + output_tokens), 0) AS tokens
             FROM api_usage_records
-            WHERE substr(timestamp,1,10) = ?
-        """, args: [dateStr])
+            WHERE timestamp >= ? AND timestamp < ?
+        """, args: [range.startTimestamp, range.endTimestamp])
         guard let row = rows.first else {
             return TodaySummary(totalCost: 0, inputTokens: 0, outputTokens: 0, cacheTokens: 0, requestCount: 0)
         }
@@ -789,7 +898,7 @@ final class DatabaseService {
     }
 
     func todaySummary() -> TodaySummary {
-        let dateStr = todayDateString()
+        let range = Self.localDayRange(Date())
         let sql = """
             SELECT COALESCE(SUM(total_cost), 0) AS total_cost,
                    COALESCE(SUM(input_tokens), 0) AS input_tokens,
@@ -797,10 +906,9 @@ final class DatabaseService {
                    COALESCE(SUM(cache_read_tokens + cache_creation_tokens), 0) AS cache_tokens,
                    COUNT(*) AS request_count
             FROM usage_records
-            WHERE timestamp >= ? || 'T00:00:00'
-              AND timestamp <  ? || 'T00:00:00' || '+1 day'
+            WHERE timestamp >= ? AND timestamp < ?
         """
-        let rows = query(sql, args: [dateStr, dateStr])
+        let rows = query(sql, args: [range.startTimestamp, range.endTimestamp])
         guard let row = rows.first else {
             return TodaySummary(totalCost: 0, inputTokens: 0, outputTokens: 0, cacheTokens: 0, requestCount: 0)
         }
@@ -881,12 +989,9 @@ final class DatabaseService {
 
     func dailyTrend(days: Int = 7) -> [DailySummary] {
         var results: [DailySummary] = []
-        let calendar = Calendar.current
-        let today = Date()
-
-        for offset in (0..<days).reversed() {
-            guard let date = calendar.date(byAdding: .day, value: -offset, to: today) else { continue }
-            let ds = dateToDateString(date)
+        let localDates = Self.lastNLocalDates(days)
+        for date in localDates {
+            let range = Self.localDayRange(date)
             let sql = """
                 SELECT COALESCE(SUM(total_cost), 0) AS total_cost,
                        COALESCE(SUM(input_tokens), 0) AS input_tokens,
@@ -894,10 +999,11 @@ final class DatabaseService {
                        COALESCE(SUM(cache_read_tokens + cache_creation_tokens), 0) AS cache_tokens,
                        COUNT(*) AS request_count
                 FROM usage_records
-                WHERE substr(timestamp,1,10) = ?
+                WHERE timestamp >= ? AND timestamp < ?
             """
-            let rows = query(sql, args: [ds])
+            let rows = query(sql, args: [range.startTimestamp, range.endTimestamp])
             if let row = rows.first {
+                let ds = dateToDateString(date)
                 results.append(DailySummary(
                     date: ds,
                     totalCost: row["total_cost"] as? Double ?? 0,
@@ -941,9 +1047,72 @@ final class DatabaseService {
         return DBStatus(recordCount: cnt, hasData: cnt > 0, path: dbPath, lastUpdate: nil)
     }
 
-    // MARK: Helpers
+    // MARK: Cost Range (v3.0 — 时区安全)
+
+    /// 本地日期范围映射为 UTC 时间戳字符串
+    struct CostRange {
+        let startTimestamp: String   // e.g. "2026-07-09T16:00:00Z"
+        let endTimestamp: String     // e.g. "2026-07-10T16:00:00Z"
+    }
+
+    /// 本地本月 → 数据库 timestamp 范围
+    static func localMonthRange(_ date: Date) -> CostRange {
+        var cal = Calendar.current
+        cal.timeZone = .current
+        let startOfMonth = cal.date(from: cal.dateComponents([.year, .month], from: date))!
+        let endOfMonth = cal.date(byAdding: .month, value: 1, to: startOfMonth)!
+        return CostRange(
+            startTimestamp: databaseTimestampString(startOfMonth),
+            endTimestamp: databaseTimestampString(endOfMonth)
+        )
+    }
+
+    /// 本地某天 → 数据库 timestamp 范围
+    static func localDayRange(_ date: Date) -> CostRange {
+        var cal = Calendar.current
+        cal.timeZone = .current
+        let startOfDay = cal.startOfDay(for: date)
+        let endOfDay = cal.date(byAdding: .day, value: 1, to: startOfDay)!
+        return CostRange(
+            startTimestamp: databaseTimestampString(startOfDay),
+            endTimestamp: databaseTimestampString(endOfDay)
+        )
+    }
+
+    /// 最近 N 天的本地日期集合
+    static func lastNLocalDates(_ days: Int) -> [Date] {
+        let cal = Calendar.current
+        let today = Date()
+        var dates: [Date] = []
+        for offset in (0..<days).reversed() {
+            if let date = cal.date(byAdding: .day, value: -offset, to: today) {
+                dates.append(date)
+            }
+        }
+        return dates
+    }
+
+    static let utcDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(abbreviation: "UTC")!
+        f.dateFormat = "yyyy-MM-dd'T'HH:mm:ss'Z'"
+        return f
+    }()
+
+    static func databaseTimestampString(_ date: Date) -> String {
+        utcDateFormatter.string(from: date)
+    }
+
+    // MARK: Helpers (legacy — kept for non-date queries)
 
     private func todayDateString() -> String { dateToDateString(Date()) }
+
+    private func monthDateString() -> String {
+        let fmt = DateFormatter()
+        fmt.dateFormat = "yyyy-MM"
+        return fmt.string(from: Date())
+    }
 
     private func dateToDateString(_ date: Date) -> String {
         let fmt = DateFormatter()

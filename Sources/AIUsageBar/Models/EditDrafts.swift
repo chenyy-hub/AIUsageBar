@@ -86,30 +86,4 @@ struct PricingEditDraft {
     }
 }
 
-struct BudgetEditDraft {
-    var name: String = ""
-    var provider: String = ""
-    var initialBalance: Double = 1000
-    var currency: String = "CNY"
-    var periodType: String = "total"
-    var startDate: String = ""
-    var isActive: Bool = true
-
-    init() {}
-
-    init(from existing: any EditableBudget) {
-        name = existing.name
-        provider = existing.provider
-        initialBalance = existing.initialBalance
-        currency = existing.currency
-        periodType = existing.periodType
-        isActive = existing.isActive
-        startDate = ""
-    }
-
-    func toBudget(id: Int = 0) -> Budget {
-        Budget(id: id, name: name, provider: provider, initialBalance: initialBalance,
-               currency: currency, periodType: periodType, startDate: startDate,
-               isActive: isActive, createdAt: "")
-    }
-}
+// BudgetEditDraft removed in v1.3.2 — Budget feature deleted

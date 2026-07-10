@@ -24,11 +24,40 @@
 
 Modern AI coding workflows involve multiple agents — Claude Code, Codex, DeepSeek, OpenAI, Anthropic — each with their own usage tracking, token consumption, and cost structures scattered across different platforms.
 
-**AIUsageBar** is a native macOS menu bar application for monitoring AI coding agent usage, API cost analytics, subscription quotas, and multi-provider AI workflows.
+**AIUsageBar** is a native macOS menu bar application for AI Agent Usage Observability — API cost tracking, model analytics, and subscription quota monitoring.
+
+AIUsageBar is a local AI Agent usage monitoring platform for macOS. It supports Claude Code, Codex CLI, DeepSeek API, and OpenAI-compatible APIs while keeping usage data on the local machine.
+
+### Core Capabilities
+
+1. Token usage statistics
+2. API cost analysis
+3. Agent activity monitoring
+4. Codex quota monitoring
+5. Budget management
+6. Local SQLite usage analysis
+
+### Pipeline Architecture
+
+```text
+Claude Code
+    |
+    v
+JSONL Transcript
+    |
+    v
+Python Scanner
+    |
+    v
+SQLite
+    |
+    v
+SwiftUI AIUsageBar
+```
 
 ### Why AIUsageBar?
 
-- **API Cost Tracking** — Separate API usage from subscription quota. Three-tier pricing model (cache hit / miss / output).
+- **API Cost Tracking** — Real-time API cost monitoring, three-tier pricing model (cache hit / miss / output).
 - **Subscription Monitoring** — Track Codex Plus session and weekly usage, with progress bars and reset timers.
 - **Local Privacy-first Storage** — All data in SQLite. API keys in macOS Keychain. No telemetry, no cloud upload.
 - **Multi Agent Dashboard** — Unified view of Claude Code, Codex, DeepSeek, OpenAI, Anthropic, and OpenRouter.
@@ -70,13 +99,13 @@ The menu bar icon dynamically shows based on current status:
 - **⚠️ Codex 90%** — warning when Codex subscription is near limit
 - **AI ✓** — normal idle state with no active usage
 
-Click to open the full dashboard with tabbed views for Dashboard, Provider management, Pricing editor, Budget tracking, and Data Health.
+Click to open the full dashboard with tabbed views for Dashboard, Provider management, Pricing editor, and Data Health.
 
 ### 📱 Dashboard Views
 
 | View | Description |
 |------|-------------|
-| **API Cost** | Real-time API spending with provider breakdown |
+| **API Cost** | Real-time API spending — today, monthly, and total cost |
 | **Codex Plus** | Session and weekly usage with progress bars and reset timer |
 | **Model Usage** | API Models (with cost) and Subscription Models (tokens only) |
 | **Agent Status** | Connection status for each AI agent |
@@ -129,12 +158,12 @@ Demo mode is useful for:
 │                    AIUsageBar.app                        │
 │               SwiftUI · MenuBarExtra                      │
 │                                                           │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐ │
-│  │Dashboard │  │Provider  │  │Pricing   │  │Budget    │ │
-│  │   View   │  │ Manager  │  │ Manager  │  │ Manager  │ │
-│  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘ │
-│       │             │             │             │        │
-│  ┌────┴─────────────┴─────────────┴─────────────┴────┐   │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐ │
+│  │Dashboard │  │Provider  │  │Pricing   │ │
+│  │   View   │  │ Manager  │  │ Manager  │ │
+│  └────┬─────┘  └────┬─────┘  └────┬─────┘ │
+│       │             │             │        │
+│  ┌────┴─────────────┴─────────────┴────┐   │
 │  │              DatabaseService                       │   │
 │  │   (READONLY · SQLite3 · Keychain · WAL mode)      │   │
 │  └─────────────────────┬─────────────────────────────┘   │
@@ -147,8 +176,8 @@ Demo mode is useful for:
 │ Records      │  │ Records      │  │ Tables       │
 │ (api_usage)  │  │ (quota_usage)│  │ (profiles,   │
 │              │  │              │  │  providers,  │
-│ Claude Code  │  │ Codex Plus   │  │  pricing,    │
-│ DeepSeek API │  │ gpt-5.5      │  │  budgets)    │
+│ Claude Code  │  │ Codex Plus   │  │  pricing)    │
+│ DeepSeek API │  │ gpt-5.5      │  │              │
 └──────────────┘  └──────────────┘  └──────────────┘
         ▲                ▲
         │                │
@@ -210,11 +239,9 @@ git push origin v1.1.0
   <table>
     <tr>
       <td><img src="docs/images/dashboard.png" alt="Dashboard" width="320"></td>
-      <td><img src="docs/images/budget.png" alt="Budget" width="320"></td>
     </tr>
     <tr>
       <td align="center"><em>Dashboard & Agent Usage</em></td>
-      <td align="center"><em>Budget & Trend View</em></td>
     </tr>
   </table>
 </div>
@@ -343,7 +370,6 @@ Or the workspace location:
 
 ### Future
 - [ ] Plugin marketplace for community scanners
-- [ ] Budget forecasting with anomaly detection
 - [ ] Multi-user support
 - [ ] Cloud sync (optional, opt-in)
 

@@ -5,6 +5,78 @@ All notable changes to AIUsageBar will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.2.0] — 2026-07-10
+
+### Added
+
+- Claude Code JSONL usage pipeline with local SQLite analysis.
+- Scanner status diagnostics and timezone-safe status decoding.
+- Budget balance persistence and remaining-balance calculation.
+- Codex quota state machine: `normal`, `warning`, `critical`, `limitReached`, and `reset`.
+- Provider-oriented MenuBar state for Claude cost and Codex 5-hour remaining time.
+
+### Changed
+
+- MenuBar refreshes now use the shared `UsageRepository` read path.
+- MenuBar presentation is separated into provider status aggregation and a display view model.
+
+### Fixed
+
+- Scanner status JSON decoding for snake_case keys.
+- MenuBar activity timestamps now select the newest transcript, usage record, or database timestamp.
+
+## [2.0.0] — 2026-07-09
+
+### Added
+
++ **Active Agent Detection (`ActiveAgentService`)**
+  - Detects Codex, Claude Code, and DeepSeek by file mtime and DB records
+  - 5-minute detection window for recent activity
+  - Priority-based fallback when multiple agents are active
+
++ **Dynamic MenuBar State**
+  - `◉ Codex 68%` — Codex active, shows quota used
+  - `✨ Claude ¥3.2` — Claude Code active, shows today's cost
+  - `🤖 DeepSeek ¥1.5` — DeepSeek active, shows today's cost
+  - `AI ✓` — idle state with no active agent
+  - Automatic switching based on ActiveAgentService
+
++ **Codex Quota Reset Monitor (`CodexQuotaMonitor`)**
+  - 60-second periodic rate limit checks
+  - Detects 5-hour window refresh (remaining low → high)
+  - macOS notification on reset
+  - MenuBar blink animation on detection
+
++ **Notification System (`NotificationService`)**
+  - `quotaReset` — Codex 5-hour window refreshed
+  - `quotaWarning` — Codex quota ≥ 80%
+  - `apiCostWarning` — Today's cost exceeds threshold
+  - macOS native UserNotifications with optional sound
+
++ **OpenUsage-style MenuBar Dropdown**
+  - Clean, minimal layout with status grid
+  - Active Agent, Today Cost, Month Cost, Codex Quota
+  - Color-coded accent by active agent type
+
++ **Full zh-CN Localization**
+  - Dashboard: "今日消费", "本月消费", "累计"
+  - DataHealthView: "数据库", "扫描器", "记录"
+  - Status labels, warnings, timestamps in Chinese
+  - All new strings in `Localization.swift`
+
+### Changed
+- MenuBar label: static → dynamic agent-aware
+- Dashboard cost display: single ambiguous → Today/Month/Total
+- `MenuBarStatusService`: rewritten for agent-aware status
+- `UsageService`: integrated 3 new services
+- `MenuBarContentView`: redesigned OpenUsage-style layout
+- `DataHealthView`: fully Chinese localized
+
+### Fixed
+- Time dimension confusion: MenuBar now shows only Today Cost
+- Notification permission: requested on launch for quota events
+- Build: 0 errors, 0 new warnings
+
 ## [1.1.1] — 2026-07-09
 
 ### Added
